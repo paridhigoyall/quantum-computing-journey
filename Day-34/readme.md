@@ -97,12 +97,7 @@ Since four counting qubits represent:
 \]
 
 possible values, the measured fraction is:
-
-\[
-\frac{4}{16}
-=
-\frac14
-\]
+\[\frac{4}{16}=\frac14\]
 
 Therefore:
 
@@ -240,11 +235,7 @@ so it technically satisfies the modular condition.
 
 However:
 
-\[
-2^{16/2}\bmod15
-=
-2^8\bmod15
-=
+\[2^{16/2}\bmod15=2^8\bmod15=
 1
 \]
 
@@ -340,11 +331,7 @@ Validation:
 
 and:
 
-\[
-2^{4/2}\bmod15
-=
-2^2\bmod15
-=
+\[2^{4/2}\bmod15=2^2\bmod15=
 4
 \]
 
@@ -386,21 +373,14 @@ x=4
 
 Then:
 
-\[
-\gcd(x-1,15)
-=
-\gcd(3,15)
-=
+\[\gcd(x-1,15)=\gcd(3,15)=
 3
 \]
 
 and:
 
 \[
-\gcd(x+1,15)
-=
-\gcd(5,15)
-=
+\gcd(x+1,15)=\gcd(5,15)=
 5
 \]
 
@@ -441,7 +421,7 @@ a^(r/2) mod N
 ## 📊 Example Results
 
 | Measurement | Fraction | Candidate | Result |
-|---|---:|---:|---|
+
 | `0100` | \(1/4\) | \(r=4\) | ✅ Useful |
 | `1000` | \(1/2\) | \(r=2\) | ❌ Invalid |
 | `1100` | \(3/4\) | \(r=4\) | ✅ Useful |
