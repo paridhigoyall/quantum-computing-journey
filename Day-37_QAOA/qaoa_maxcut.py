@@ -2,7 +2,7 @@ import numpy as np
 
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
-
+from scipy.optimize import minimize
 
 # ============================================================
 # Max-Cut problem
@@ -30,6 +30,26 @@ beta = np.pi / 4
 #
 # C_ij = (1 - Z_i Z_j) / 2
 # ============================================================
+def objective(params):
+
+    best_gamma=optimization_result.x[0]
+    best_beta =optimization_result.x[1]
+
+    expectation, _ = evaluate_qaoa(
+        gamma,
+        beta,
+        shots=1024
+    )
+
+    value = -expectation
+
+    print(
+        f"gamma={gamma:.4f}, "
+        f"beta={beta:.4f}, "
+        f"cut={expectation:.4f}"
+    )
+
+    return value
 
 def cost_unitary(gamma):
 
@@ -125,7 +145,7 @@ def build_qaoa(gamma, beta):
 # Evaluate QAOA
 # ============================================================
 
-def evaluate_qaoa(gamma, beta, shots=1024):
+def evaluate_qaoa(gamma, beta, shots=2048):
 
     qc = build_qaoa(
         gamma,
@@ -298,4 +318,87 @@ print(
 print(
     "Expected cut =",
     best_expectation
+)
+# ============================================================
+# Classical optimization with COBYLA
+# ============================================================
+
+print("\nCOBYLA Optimization:")
+
+initial_parameters = [
+    np.pi / 4,
+    np.pi / 4
+]
+
+optimization_result = minimize(
+    objective,
+    initial_parameters,
+    method="COBYLA",
+    options={
+        "maxiter": 30,
+        "rhobeg": 0.5
+    }
+)
+
+
+# ============================================================
+# Final result
+# ============================================================
+
+best_gamma = optimization_result.x[0]
+best_beta = optimization_result.x[1]
+
+best_expectation = -optimization_result.fun
+
+
+print("\nOptimization Complete:")
+
+print(
+    "Best gamma =",
+    best_gamma
+)
+
+print(
+    "Best beta =",
+    best_beta
+)
+
+print(
+    "Best expected cut =",
+    best_expectation
+)
+
+print(
+    "Maximum possible cut = 2"
+)
+
+optimal_probability = 0
+
+print("\nFinal Measurement Results:")
+
+for state, count in sorted(
+    counts.items(),
+    key=lambda item: item[1],
+    reverse=True
+):
+    cut = cut_value(state)
+
+    print(
+        f"{state}: {count} "
+        f"| cut = {cut}"
+    )
+
+    if cut == 2:
+        optimal_probability += count
+
+optimal_probability /= 2048
+
+print(
+    "\nOptimal-solution probability:",
+    optimal_probability
+)
+
+print(
+    "Expected cut value:",
+    expectation
 )
