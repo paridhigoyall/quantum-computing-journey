@@ -4,6 +4,7 @@ from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 from scipy.optimize import minimize
 
+
 # ============================================================
 # Max-Cut problem
 # ============================================================
@@ -18,38 +19,10 @@ edges = [
 
 
 # ============================================================
-# QAOA parameters
-# ============================================================
-
-gamma = np.pi / 4
-beta = np.pi / 4
-
-
-# ============================================================
 # Cost unitary
 #
 # C_ij = (1 - Z_i Z_j) / 2
 # ============================================================
-def objective(params):
-
-    best_gamma=optimization_result.x[0]
-    best_beta =optimization_result.x[1]
-
-    expectation, _ = evaluate_qaoa(
-        gamma,
-        beta,
-        shots=1024
-    )
-
-    value = -expectation
-
-    print(
-        f"gamma={gamma:.4f}, "
-        f"beta={beta:.4f}, "
-        f"cut={expectation:.4f}"
-    )
-
-    return value
 
 def cost_unitary(gamma):
 
@@ -58,9 +31,7 @@ def cost_unitary(gamma):
     for i, j in edges:
 
         qc.cx(i, j)
-
         qc.rz(-gamma, j)
-
         qc.cx(i, j)
 
     return qc
@@ -81,7 +52,7 @@ def mixer_unitary(beta):
 
 
 # ============================================================
-# Calculate Max-Cut value
+# Max-Cut value
 # ============================================================
 
 def cut_value(bitstring):
@@ -97,10 +68,15 @@ def cut_value(bitstring):
 
 
 # ============================================================
-# Build QAOA circuit
+# Build QAOA p=2 circuit
 # ============================================================
 
-def build_qaoa(gamma, beta):
+def build_qaoa_p2(
+    gamma1,
+    beta1,
+    gamma2,
+    beta2
+):
 
     qc = QuantumCircuit(n, n)
 
@@ -111,21 +87,31 @@ def build_qaoa(gamma, beta):
     for q in range(n):
         qc.h(q)
 
-    # --------------------------------------------------------
-    # Cost layer
-    # --------------------------------------------------------
+    # ========================================================
+    # QAOA LAYER 1
+    # ========================================================
 
     qc.compose(
-        cost_unitary(gamma),
+        cost_unitary(gamma1),
         inplace=True
     )
 
-    # --------------------------------------------------------
-    # Mixer layer
-    # --------------------------------------------------------
+    qc.compose(
+        mixer_unitary(beta1),
+        inplace=True
+    )
+
+    # ========================================================
+    # QAOA LAYER 2
+    # ========================================================
 
     qc.compose(
-        mixer_unitary(beta),
+        cost_unitary(gamma2),
+        inplace=True
+    )
+
+    qc.compose(
+        mixer_unitary(beta2),
         inplace=True
     )
 
@@ -142,14 +128,21 @@ def build_qaoa(gamma, beta):
 
 
 # ============================================================
-# Evaluate QAOA
+# Evaluate QAOA p=2
 # ============================================================
 
-def evaluate_qaoa(gamma, beta, shots=2048):
+def evaluate_qaoa_p2(
+    params,
+    shots=1024
+):
 
-    qc = build_qaoa(
-        gamma,
-        beta
+    gamma1, beta1, gamma2, beta2 = params
+
+    qc = build_qaoa_p2(
+        gamma1,
+        beta1,
+        gamma2,
+        beta2
     )
 
     simulator = AerSimulator()
@@ -184,33 +177,61 @@ def evaluate_qaoa(gamma, beta, shots=2048):
 
 
 # ============================================================
-# Show one QAOA circuit
+# Initial p=2 parameters
 # ============================================================
 
-qc = build_qaoa(
-    gamma,
-    beta
+initial_parameters = np.array([
+    np.pi / 4,   # gamma1
+    np.pi / 4,   # beta1
+    np.pi / 4,   # gamma2
+    np.pi / 4    # beta2
+])
+
+
+# ============================================================
+# Build and display p=2 circuit
+# ============================================================
+
+qc = build_qaoa_p2(
+    *initial_parameters
 )
 
-print("QAOA Max-Cut Circuit:")
+print("QAOA p=2 Max-Cut Circuit:")
 print(qc)
 
-print("\nParameters:")
-print("gamma =", gamma)
-print("beta  =", beta)
+print("\nInitial Parameters:")
+
+print(
+    "gamma1 =",
+    initial_parameters[0]
+)
+
+print(
+    "beta1  =",
+    initial_parameters[1]
+)
+
+print(
+    "gamma2 =",
+    initial_parameters[2]
+)
+
+print(
+    "beta2  =",
+    initial_parameters[3]
+)
 
 
 # ============================================================
-# Run one experiment
+# Initial p=2 experiment
 # ============================================================
 
-expectation, counts = evaluate_qaoa(
-    gamma,
-    beta,
+expectation, counts = evaluate_qaoa_p2(
+    initial_parameters,
     shots=2048
 )
 
-print("\nMeasurement Results:")
+print("\nInitial Measurement Results:")
 
 for state, count in sorted(
     counts.items(),
@@ -219,134 +240,72 @@ for state, count in sorted(
 ):
 
     print(
-        f"{state}: {count}"
+        f"{state}: {count} "
+        f"| cut = {cut_value(state)}"
     )
 
 print(
-    "\nExpected cut value:",
+    "\nInitial Expected Cut:",
     expectation
+)
+
+print(
+    "Theoretical Maximum:",
+    2
 )
 
 
 # ============================================================
-# Parameter experiment
+# Objective function for COBYLA
 # ============================================================
 
-print("\nParameter Experiment:")
+def objective(params):
 
-test_parameters = [
-
-    (0.0, 0.0),
-
-    (np.pi / 4, np.pi / 4),
-
-    (np.pi / 2, np.pi / 4),
-
-    (np.pi / 4, np.pi / 2),
-
-    (np.pi / 2, np.pi / 2)
-
-]
-
-
-for gamma_test, beta_test in test_parameters:
-
-    expectation, counts = evaluate_qaoa(
-        gamma_test,
-        beta_test,
+    expectation, _ = evaluate_qaoa_p2(
+        params,
         shots=1024
     )
 
     print(
-        f"gamma={gamma_test:.3f}, "
-        f"beta={beta_test:.3f} "
-        f"-> expected cut = {expectation:.4f}"
+        f"gamma1={params[0]:.4f}, "
+        f"beta1={params[1]:.4f}, "
+        f"gamma2={params[2]:.4f}, "
+        f"beta2={params[3]:.4f}, "
+        f"cut={expectation:.4f}"
     )
 
+    # COBYLA minimizes.
+    # We want to maximize expected cut.
+    return -expectation
+
 
 # ============================================================
-# Maximum possible cut
-# ============================================================
-
-print("\nTheoretical maximum cut:")
-print("Maximum cut value = 2")
-# ============================================================
-# Grid search for best gamma and beta
-# ============================================================
-
-print("\nGrid Search:")
-
-best_expectation = -1
-best_gamma = None
-best_beta = None
-
-values = np.linspace(
-    0,
-    np.pi,
-    9
-)
-
-for gamma_test in values:
-
-    for beta_test in values:
-
-        expectation, _ = evaluate_qaoa(
-            gamma_test,
-            beta_test,
-            shots=512
-        )
-
-        if expectation > best_expectation:
-
-            best_expectation = expectation
-            best_gamma = gamma_test
-            best_beta = beta_test
-
-
-print("\nBest parameters found:")
-
-print(
-    "gamma =",
-    best_gamma
-)
-
-print(
-    "beta =",
-    best_beta
-)
-
-print(
-    "Expected cut =",
-    best_expectation
-)
-# ============================================================
-# Classical optimization with COBYLA
+# COBYLA optimization
 # ============================================================
 
 print("\nCOBYLA Optimization:")
-
-initial_parameters = [
-    np.pi / 4,
-    np.pi / 4
-]
 
 optimization_result = minimize(
     objective,
     initial_parameters,
     method="COBYLA",
     options={
-        "maxiter": 30,
+        "maxiter": 50,
         "rhobeg": 0.5
     }
 )
 
 
 # ============================================================
-# Final result
+# Optimized parameters
 # ============================================================
 
-best_gamma = optimization_result.x[0]
-best_beta = optimization_result.x[1]
+best_parameters = optimization_result.x
+
+best_gamma1 = best_parameters[0]
+best_beta1 = best_parameters[1]
+best_gamma2 = best_parameters[2]
+best_beta2 = best_parameters[3]
 
 best_expectation = -optimization_result.fun
 
@@ -354,13 +313,23 @@ best_expectation = -optimization_result.fun
 print("\nOptimization Complete:")
 
 print(
-    "Best gamma =",
-    best_gamma
+    "Best gamma1 =",
+    best_gamma1
 )
 
 print(
-    "Best beta =",
-    best_beta
+    "Best beta1  =",
+    best_beta1
+)
+
+print(
+    "Best gamma2 =",
+    best_gamma2
+)
+
+print(
+    "Best beta2  =",
+    best_beta2
 )
 
 print(
@@ -369,18 +338,30 @@ print(
 )
 
 print(
-    "Maximum possible cut = 2"
+    "Maximum possible cut =",
+    2
 )
 
-optimal_probability = 0
 
-print("\nFinal Measurement Results:")
+# ============================================================
+# Final verification
+# ============================================================
+
+print("\nFinal Verification:")
+
+final_expectation, final_counts = evaluate_qaoa_p2(
+    best_parameters,
+    shots=2048
+)
+
+optimal_count = 0
 
 for state, count in sorted(
-    counts.items(),
+    final_counts.items(),
     key=lambda item: item[1],
     reverse=True
 ):
+
     cut = cut_value(state)
 
     print(
@@ -389,9 +370,13 @@ for state, count in sorted(
     )
 
     if cut == 2:
-        optimal_probability += count
+        optimal_count += count
 
-optimal_probability /= 2048
+
+optimal_probability = (
+    optimal_count / 2048
+)
+
 
 print(
     "\nOptimal-solution probability:",
@@ -399,6 +384,11 @@ print(
 )
 
 print(
-    "Expected cut value:",
-    expectation
+    "Final expected cut:",
+    final_expectation
+)
+
+print(
+    "Theoretical maximum cut:",
+    2
 )
