@@ -6,60 +6,48 @@ from scipy.optimize import minimize
 
 
 # ============================================================
-# Two-Qubit VQE
+# Two-Qubit VQE with X0X1
 #
-# H = 0.5 Z0 + 0.5 Z1 + 0.8 Z0 Z1
+# H = 0.5 Z0 + 0.5 Z1 + 0.8 Z0Z1 + 0.2 X0X1
 #
-# Exact ground-state energy = -0.8
+# Exact ground-state energy = -1.0
 #
-# Ground states:
-# |01> and |10>
+# 4-parameter entangling ansatz:
+# RY(theta0) --●-- RY(theta2)
+#              |
+# RY(theta1) --X-- RY(theta3)
 # ============================================================
 
 Z0_COEFF = 0.5
 Z1_COEFF = 0.5
 ZZ_COEFF = 0.8
+XX_COEFF = 0.2
 
-SHOTS = 1024
+SHOTS = 8192
+
+simulator = AerSimulator()
 
 
-# ============================================================
-# Ansatz
-# ============================================================
-
-def build_ansatz(theta0, theta1):
-
-    qc = QuantumCircuit(2, 2)
+def build_ansatz(theta0, theta1, theta2, theta3):
+    qc = QuantumCircuit(2)
 
     qc.ry(theta0, 0)
     qc.ry(theta1, 1)
 
+    qc.cx(0, 1)
+
+    qc.ry(theta2, 0)
+    qc.ry(theta3, 1)
+
     return qc
 
 
-# ============================================================
-# Measure all required Pauli terms
-# ============================================================
+def measure_z_terms(theta0, theta1, theta2, theta3, shots):
+    qc = build_ansatz(theta0, theta1, theta2, theta3)
+    qc.measure_all()
 
-def evaluate_energy(theta0, theta1, shots=1024):
-
-    qc = build_ansatz(theta0, theta1)
-
-    qc.measure(0, 0)
-    qc.measure(1, 1)
-
-    simulator = AerSimulator()
-
-    compiled = transpile(
-        qc,
-        simulator
-    )
-
-    result = simulator.run(
-        compiled,
-        shots=shots
-    ).result()
-
+    compiled = transpile(qc, simulator)
+    result = simulator.run(compiled, shots=shots).result()
     counts = result.get_counts()
 
     z0_total = 0
@@ -67,151 +55,133 @@ def evaluate_energy(theta0, theta1, shots=1024):
     zz_total = 0
 
     for bitstring, count in counts.items():
-
-        # Qiskit displays classical bits as c1 c0.
         q1 = int(bitstring[0])
         q0 = int(bitstring[1])
 
-        # Z eigenvalues:
-        # |0> -> +1
-        # |1> -> -1
-
         z0 = 1 if q0 == 0 else -1
         z1 = 1 if q1 == 0 else -1
-
         zz = z0 * z1
 
         z0_total += z0 * count
         z1_total += z1 * count
         zz_total += zz * count
 
-    z0 = z0_total / shots
-    z1 = z1_total / shots
-    zz = zz_total / shots
+    return (
+        z0_total / shots,
+        z1_total / shots,
+        zz_total / shots,
+        counts
+    )
+
+
+def measure_xx(theta0, theta1, theta2, theta3, shots):
+    qc = build_ansatz(theta0, theta1, theta2, theta3)
+
+    qc.h(0)
+    qc.h(1)
+    qc.measure_all()
+
+    compiled = transpile(qc, simulator)
+    result = simulator.run(compiled, shots=shots).result()
+    counts = result.get_counts()
+
+    xx_total = 0
+
+    for bitstring, count in counts.items():
+        q1 = int(bitstring[0])
+        q0 = int(bitstring[1])
+
+        xx_total += count if q0 == q1 else -count
+
+    return xx_total / shots, counts
+
+
+def evaluate_energy(theta0, theta1, theta2, theta3, shots=SHOTS):
+    z0, z1, zz, _ = measure_z_terms(
+        theta0, theta1, theta2, theta3, shots
+    )
+
+    xx, xx_counts = measure_xx(
+        theta0, theta1, theta2, theta3, shots
+    )
 
     energy = (
         Z0_COEFF * z0
         + Z1_COEFF * z1
         + ZZ_COEFF * zz
+        + XX_COEFF * xx
     )
 
-    return energy, z0, z1, zz, counts
+    return energy, z0, z1, zz, xx, xx_counts
 
-
-# ============================================================
-# Objective function
-# ============================================================
 
 def objective(params):
+    theta0, theta1, theta2, theta3 = params
 
-    theta0 = params[0]
-    theta1 = params[1]
-
-    energy, z0, z1, zz, _ = evaluate_energy(
-        theta0,
-        theta1,
-        shots=SHOTS
+    energy, z0, z1, zz, xx, _ = evaluate_energy(
+        theta0, theta1, theta2, theta3, shots=SHOTS
     )
 
     print(
         f"theta0={theta0:.4f}, "
-        f"theta1={theta1:.4f} | "
+        f"theta1={theta1:.4f}, "
+        f"theta2={theta2:.4f}, "
+        f"theta3={theta3:.4f} | "
         f"<Z0>={z0:.4f}, "
         f"<Z1>={z1:.4f}, "
-        f"<ZZ>={zz:.4f} | "
+        f"<ZZ>={zz:.4f}, "
+        f"<XX>={xx:.4f} | "
         f"E={energy:.4f}"
     )
 
     return energy
 
 
-# ============================================================
-# Initial parameters
-# ============================================================
-
 initial_parameters = np.array([
     0.5,
-    0.5
+    0.5,
+    0.0,
+    0.0
 ])
 
 
-# ============================================================
-# Header
-# ============================================================
+print("Two-Qubit VQE with X0X1")
+print("=======================")
 
-print("Two-Qubit VQE")
-print("=============")
+print("\nHamiltonian:")
+print("H = 0.5 Z0 + 0.5 Z1 + 0.8 Z0Z1 + 0.2 X0X1")
 
-print(
-    "Hamiltonian:"
-)
+print("\nExact ground-state energy = -1.000000")
 
-print(
-    "H = 0.5 Z0 + 0.5 Z1 + 0.8 Z0Z1"
-)
+print(f"Initial theta0 = {initial_parameters[0]:.4f}")
+print(f"Initial theta1 = {initial_parameters[1]:.4f}")
+print(f"Initial theta2 = {initial_parameters[2]:.4f}")
+print(f"Initial theta3 = {initial_parameters[3]:.4f}")
 
-print(
-    "\nExact ground-state energy = -0.8"
-)
-
-print(
-    "Ground states = |01>, |10>"
-)
-
-print(
-    f"\nInitial theta0 = "
-    f"{initial_parameters[0]:.4f}"
-)
-
-print(
-    f"Initial theta1 = "
-    f"{initial_parameters[1]:.4f}"
-)
-
-
-# ============================================================
-# Initial measurement
-# ============================================================
 
 (
     initial_energy,
     initial_z0,
     initial_z1,
     initial_zz,
-    initial_counts
+    initial_xx,
+    initial_xx_counts
 ) = evaluate_energy(
     initial_parameters[0],
     initial_parameters[1],
-    shots=2048
+    initial_parameters[2],
+    initial_parameters[3],
+    shots=SHOTS
 )
 
 print("\nInitial Measurements:")
+print(f"<Z0> = {initial_z0:.4f}")
+print(f"<Z1> = {initial_z1:.4f}")
+print(f"<Z0Z1> = {initial_zz:.4f}")
+print(f"<X0X1> = {initial_xx:.4f}")
+print(f"Initial Energy = {initial_energy:.4f}")
+print(f"XX Measurement Counts = {initial_xx_counts}")
 
-print(
-    f"<Z0> = {initial_z0:.4f}"
-)
-
-print(
-    f"<Z1> = {initial_z1:.4f}"
-)
-
-print(
-    f"<Z0Z1> = {initial_zz:.4f}"
-)
-
-print(
-    f"Initial Energy = "
-    f"{initial_energy:.4f}"
-)
-
-print(
-    f"Counts = {initial_counts}"
-)
-
-
-# ============================================================
-# COBYLA optimization
-# ============================================================
 
 print("\nCOBYLA Optimization:")
 
@@ -220,85 +190,47 @@ result = minimize(
     initial_parameters,
     method="COBYLA",
     options={
-        "maxiter": 40,
+        "maxiter": 60,
         "rhobeg": 0.5
     }
 )
 
 
-# ============================================================
-# Optimization result
-# ============================================================
-
 best_theta0 = result.x[0]
 best_theta1 = result.x[1]
+best_theta2 = result.x[2]
+best_theta3 = result.x[3]
 
 print("\nOptimization Complete:")
+print(f"Best theta0 = {best_theta0:.6f}")
+print(f"Best theta1 = {best_theta1:.6f}")
+print(f"Best theta2 = {best_theta2:.6f}")
+print(f"Best theta3 = {best_theta3:.6f}")
+print(f"Optimizer energy = {result.fun:.6f}")
+print("Exact ground-state energy = -1.000000")
 
-print(
-    f"Best theta0 = "
-    f"{best_theta0:.6f}"
-)
-
-print(
-    f"Best theta1 = "
-    f"{best_theta1:.6f}"
-)
-
-print(
-    f"Optimizer energy = "
-    f"{result.fun:.6f}"
-)
-
-print(
-    "Exact ground-state energy = -0.800000"
-)
-
-
-# ============================================================
-# Final verification
-# ============================================================
 
 (
     final_energy,
     final_z0,
     final_z1,
     final_zz,
-    final_counts
+    final_xx,
+    final_xx_counts
 ) = evaluate_energy(
     best_theta0,
     best_theta1,
-    shots=4096
+    best_theta2,
+    best_theta3,
+    shots=16384
 )
-
 
 print("\nFinal Verification:")
+print(f"<Z0> = {final_z0:.6f}")
+print(f"<Z1> = {final_z1:.6f}")
+print(f"<Z0Z1> = {final_zz:.6f}")
+print(f"<X0X1> = {final_xx:.6f}")
+print(f"Final Energy = {final_energy:.6f}")
+print(f"XX Counts = {final_xx_counts}")
 
-print(
-    f"<Z0> = "
-    f"{final_z0:.6f}"
-)
-
-print(
-    f"<Z1> = "
-    f"{final_z1:.6f}"
-)
-
-print(
-    f"<Z0Z1> = "
-    f"{final_zz:.6f}"
-)
-
-print(
-    f"Final Energy = "
-    f"{final_energy:.6f}"
-)
-
-print(
-    f"Final Counts = "
-    f"{final_counts}"
-)
-
-print(
-    "\nExact Ground-State Energy = -0.800000"
-)
+print("\nExact Ground-State Energy = -1.000000")
