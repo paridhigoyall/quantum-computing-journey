@@ -1,236 +1,215 @@
 import numpy as np
-
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 from scipy.optimize import minimize
 
-
 # ============================================================
-# Two-Qubit VQE with X0X1
-#
+# Day 39 - Generic Two-Qubit VQE
 # H = 0.5 Z0 + 0.5 Z1 + 0.8 Z0Z1 + 0.2 X0X1
-#
-# Exact ground-state energy = -1.0
-#
-# 4-parameter entangling ansatz:
-# RY(theta0) --●-- RY(theta2)
-#              |
-# RY(theta1) --X-- RY(theta3)
 # ============================================================
 
-Z0_COEFF = 0.5
-Z1_COEFF = 0.5
-ZZ_COEFF = 0.8
-XX_COEFF = 0.2
+HAMILTONIAN = [
+    ("Z0", 0.5),
+    ("Z1", 0.5),
+    ("Z0Z1", 0.8),
+    ("X0X1", 0.2),
+]
 
-SHOTS = 8192
+EXACT_GROUND_STATE_ENERGY = -1.0
+OPTIMIZATION_SHOTS = 4096
+FINAL_SHOTS = 16384
 
 simulator = AerSimulator()
 
 
+# ============================================================
+# Variational ansatz
+# ============================================================
+
 def build_ansatz(theta0, theta1, theta2, theta3):
     qc = QuantumCircuit(2)
-
     qc.ry(theta0, 0)
     qc.ry(theta1, 1)
-
     qc.cx(0, 1)
-
     qc.ry(theta2, 0)
     qc.ry(theta3, 1)
-
     return qc
 
 
-def measure_z_terms(theta0, theta1, theta2, theta3, shots):
+# ============================================================
+# Generic Pauli measurement
+# Supported: Z0, Z1, Z0Z1, X0, X1, X0X1
+# ============================================================
+
+def measure_pauli(theta0, theta1, theta2, theta3, pauli_term,
+                  shots=OPTIMIZATION_SHOTS):
+
     qc = build_ansatz(theta0, theta1, theta2, theta3)
+
+    # X measurement is converted to Z measurement with H.
+    if "X0" in pauli_term:
+        qc.h(0)
+    if "X1" in pauli_term:
+        qc.h(1)
+
     qc.measure_all()
 
     compiled = transpile(qc, simulator)
     result = simulator.run(compiled, shots=shots).result()
     counts = result.get_counts()
 
-    z0_total = 0
-    z1_total = 0
-    zz_total = 0
+    total = 0
 
     for bitstring, count in counts.items():
+        # Qiskit displays two qubits as q1 q0.
         q1 = int(bitstring[0])
         q0 = int(bitstring[1])
 
-        z0 = 1 if q0 == 0 else -1
-        z1 = 1 if q1 == 0 else -1
-        zz = z0 * z1
+        eigenvalue = 1
 
-        z0_total += z0 * count
-        z1_total += z1 * count
-        zz_total += zz * count
+        if "Z0" in pauli_term or "X0" in pauli_term:
+            eigenvalue *= 1 if q0 == 0 else -1
 
-    return (
-        z0_total / shots,
-        z1_total / shots,
-        zz_total / shots,
-        counts
-    )
+        if "Z1" in pauli_term or "X1" in pauli_term:
+            eigenvalue *= 1 if q1 == 0 else -1
+
+        total += eigenvalue * count
+
+    return total / shots, counts
 
 
-def measure_xx(theta0, theta1, theta2, theta3, shots):
-    qc = build_ansatz(theta0, theta1, theta2, theta3)
+# ============================================================
+# Generic Hamiltonian evaluation
+# ============================================================
 
-    qc.h(0)
-    qc.h(1)
-    qc.measure_all()
+def evaluate_hamiltonian(theta0, theta1, theta2, theta3,
+                         shots=OPTIMIZATION_SHOTS):
 
-    compiled = transpile(qc, simulator)
-    result = simulator.run(compiled, shots=shots).result()
-    counts = result.get_counts()
+    energy = 0.0
+    measurements = {}
 
-    xx_total = 0
+    for pauli_term, coefficient in HAMILTONIAN:
+        expectation, counts = measure_pauli(
+            theta0, theta1, theta2, theta3,
+            pauli_term, shots
+        )
 
-    for bitstring, count in counts.items():
-        q1 = int(bitstring[0])
-        q0 = int(bitstring[1])
+        contribution = coefficient * expectation
+        energy += contribution
 
-        xx_total += count if q0 == q1 else -count
+        measurements[pauli_term] = {
+            "coefficient": coefficient,
+            "expectation": expectation,
+            "contribution": contribution,
+            "counts": counts,
+        }
 
-    return xx_total / shots, counts
+    return energy, measurements
 
 
-def evaluate_energy(theta0, theta1, theta2, theta3, shots=SHOTS):
-    z0, z1, zz, _ = measure_z_terms(
-        theta0, theta1, theta2, theta3, shots
-    )
-
-    xx, xx_counts = measure_xx(
-        theta0, theta1, theta2, theta3, shots
-    )
-
-    energy = (
-        Z0_COEFF * z0
-        + Z1_COEFF * z1
-        + ZZ_COEFF * zz
-        + XX_COEFF * xx
-    )
-
-    return energy, z0, z1, zz, xx, xx_counts
-
+# ============================================================
+# COBYLA objective
+# ============================================================
 
 def objective(params):
-    theta0, theta1, theta2, theta3 = params
+    energy, measurements = evaluate_hamiltonian(*params)
 
-    energy, z0, z1, zz, xx, _ = evaluate_energy(
-        theta0, theta1, theta2, theta3, shots=SHOTS
-    )
+    z0 = measurements["Z0"]["expectation"]
+    z1 = measurements["Z1"]["expectation"]
+    zz = measurements["Z0Z1"]["expectation"]
+    xx = measurements["X0X1"]["expectation"]
 
     print(
-        f"theta0={theta0:.4f}, "
-        f"theta1={theta1:.4f}, "
-        f"theta2={theta2:.4f}, "
-        f"theta3={theta3:.4f} | "
-        f"<Z0>={z0:.4f}, "
-        f"<Z1>={z1:.4f}, "
-        f"<ZZ>={zz:.4f}, "
-        f"<XX>={xx:.4f} | "
-        f"E={energy:.4f}"
+        f"theta0={params[0]:.4f}, theta1={params[1]:.4f}, "
+        f"theta2={params[2]:.4f}, theta3={params[3]:.4f} | "
+        f"<Z0>={z0:+.4f}, <Z1>={z1:+.4f}, "
+        f"<ZZ>={zz:+.4f}, <XX>={xx:+.4f} | E={energy:+.4f}"
     )
 
     return energy
 
 
-initial_parameters = np.array([
-    0.5,
-    0.5,
-    0.0,
-    0.0
-])
+def print_hamiltonian():
+    pieces = []
+    for term, coefficient in HAMILTONIAN:
+        pieces.append(f"{coefficient:+.3f}{term}")
+    expression = " ".join(pieces)
+    if expression.startswith("+"):
+        expression = expression[1:].lstrip()
+    print(f"H = {expression}")
 
 
-print("Two-Qubit VQE with X0X1")
-print("=======================")
+# ============================================================
+# Main program
+# ============================================================
 
-print("\nHamiltonian:")
-print("H = 0.5 Z0 + 0.5 Z1 + 0.8 Z0Z1 + 0.2 X0X1")
+initial_parameters = np.array([0.5, 0.5, 0.0, 0.0])
 
-print("\nExact ground-state energy = -1.000000")
+print("Day 39 - Generic Two-Qubit VQE")
+print("==============================")
+print_hamiltonian()
+print(f"Exact ground-state energy = {EXACT_GROUND_STATE_ENERGY:.6f}")
 
-print(f"Initial theta0 = {initial_parameters[0]:.4f}")
-print(f"Initial theta1 = {initial_parameters[1]:.4f}")
-print(f"Initial theta2 = {initial_parameters[2]:.4f}")
-print(f"Initial theta3 = {initial_parameters[3]:.4f}")
+print("\nInitial Parameters:")
+for i, value in enumerate(initial_parameters):
+    print(f"theta{i} = {value:.6f}")
 
-
-(
-    initial_energy,
-    initial_z0,
-    initial_z1,
-    initial_zz,
-    initial_xx,
-    initial_xx_counts
-) = evaluate_energy(
-    initial_parameters[0],
-    initial_parameters[1],
-    initial_parameters[2],
-    initial_parameters[3],
-    shots=SHOTS
+initial_energy, initial_measurements = evaluate_hamiltonian(
+    *initial_parameters, shots=FINAL_SHOTS
 )
 
 print("\nInitial Measurements:")
-print(f"<Z0> = {initial_z0:.4f}")
-print(f"<Z1> = {initial_z1:.4f}")
-print(f"<Z0Z1> = {initial_zz:.4f}")
-print(f"<X0X1> = {initial_xx:.4f}")
-print(f"Initial Energy = {initial_energy:.4f}")
-print(f"XX Measurement Counts = {initial_xx_counts}")
+for term, data in initial_measurements.items():
+    print(
+        f"{term:<5} | coefficient={data['coefficient']:+.3f} | "
+        f"<P>={data['expectation']:+.6f} | "
+        f"contribution={data['contribution']:+.6f}"
+    )
+print(f"Initial Energy = {initial_energy:.6f}")
 
 
 print("\nCOBYLA Optimization:")
-
 result = minimize(
     objective,
     initial_parameters,
     method="COBYLA",
-    options={
-        "maxiter": 60,
-        "rhobeg": 0.5
-    }
+    options={"maxiter": 60, "rhobeg": 0.5},
 )
 
-
-best_theta0 = result.x[0]
-best_theta1 = result.x[1]
-best_theta2 = result.x[2]
-best_theta3 = result.x[3]
+best = result.x
 
 print("\nOptimization Complete:")
-print(f"Best theta0 = {best_theta0:.6f}")
-print(f"Best theta1 = {best_theta1:.6f}")
-print(f"Best theta2 = {best_theta2:.6f}")
-print(f"Best theta3 = {best_theta3:.6f}")
+for i, value in enumerate(best):
+    print(f"Best theta{i} = {value:.6f}")
 print(f"Optimizer energy = {result.fun:.6f}")
-print("Exact ground-state energy = -1.000000")
+print(f"Exact ground-state energy = {EXACT_GROUND_STATE_ENERGY:.6f}")
 
 
-(
-    final_energy,
-    final_z0,
-    final_z1,
-    final_zz,
-    final_xx,
-    final_xx_counts
-) = evaluate_energy(
-    best_theta0,
-    best_theta1,
-    best_theta2,
-    best_theta3,
-    shots=16384
+final_energy, final_measurements = evaluate_hamiltonian(
+    *best, shots=FINAL_SHOTS
 )
 
 print("\nFinal Verification:")
-print(f"<Z0> = {final_z0:.6f}")
-print(f"<Z1> = {final_z1:.6f}")
-print(f"<Z0Z1> = {final_zz:.6f}")
-print(f"<X0X1> = {final_xx:.6f}")
-print(f"Final Energy = {final_energy:.6f}")
-print(f"XX Counts = {final_xx_counts}")
+for term, data in final_measurements.items():
+    print(
+        f"{term:<5} | <P>={data['expectation']:+.6f} | "
+        f"contribution={data['contribution']:+.6f}"
+    )
 
-print("\nExact Ground-State Energy = -1.000000")
+print(f"\nFinal Energy = {final_energy:.6f}")
+print(f"Exact Ground-State Energy = {EXACT_GROUND_STATE_ENERGY:.6f}")
+print(
+    f"Absolute Energy Error = "
+    f"{abs(final_energy - EXACT_GROUND_STATE_ENERGY):.6f}"
+)
+
+print("\nVQE Summary:")
+if final_energy <= EXACT_GROUND_STATE_ENERGY + 0.02:
+    print("The VQE result is very close to the exact ground-state energy.")
+else:
+    print("The VQE result is not yet very close to the exact ground-state energy.")
+
+print(
+    "The Hamiltonian is now represented as Pauli terms, so the "
+    "measurement and energy logic can be reused for new Hamiltonians."
+)
