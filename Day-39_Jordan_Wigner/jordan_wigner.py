@@ -422,3 +422,108 @@ print(
     "\nDoes {a, a†} = I ?",
     np.allclose(anticommutator, identity)
 )
+# ============================================================
+# Two-Mode Fermionic Operators
+# ============================================================
+
+def kron(a, b):
+    return np.kron(a, b)
+
+
+# Jordan-Wigner operators for two modes
+
+a0_dagger = kron(
+    (X - 1j * Y) / 2,
+    I
+)
+
+a0 = kron(
+    (X + 1j * Y) / 2,
+    I
+)
+
+a1_dagger = kron(
+    Z,
+    (X - 1j * Y) / 2
+)
+
+a1 = kron(
+    Z,
+    (X + 1j * Y) / 2
+)
+
+
+print("\nTwo-mode fermionic operators:")
+print("=============================")
+
+print("\na0† =")
+print(a0_dagger)
+
+print("\na0 =")
+print(a0)
+
+print("\na1† =")
+print(a1_dagger)
+
+print("\na1 =")
+print(a1)
+# ============================================================
+# Cross-Mode Anticommutation
+# ============================================================
+
+print("\nCross-mode anticommutation:")
+print("============================")
+
+# {a0, a1†} = a0 a1† + a1† a0
+cross_01 = (
+    a0 @ a1_dagger
+    + a1_dagger @ a0
+)
+
+# {a0, a1} = a0 a1 + a1 a0
+cross_00 = (
+    a0 @ a1
+    + a1 @ a0
+)
+
+zero_matrix = np.zeros((4, 4), dtype=complex)
+
+print("\n{a0, a1†} =")
+print(cross_01)
+
+print(
+    "\nDoes {a0, a1†} = 0 ?",
+    np.allclose(cross_01, zero_matrix)
+)
+
+print("\n{a0, a1} =")
+print(cross_00)
+
+print(
+    "\nDoes {a0, a1} = 0 ?",
+    np.allclose(cross_00, zero_matrix)
+)
+# ============================================================
+# Why the Jordan-Wigner Z-string is necessary
+# ============================================================
+
+wrong_a1_dagger = kron(
+    I,
+    (X - 1j * Y) / 2
+)
+
+wrong_cross = (
+    a0 @ wrong_a1_dagger
+    + wrong_a1_dagger @ a0
+)
+
+print("\nWithout the Jordan-Wigner Z-string:")
+print("===================================")
+
+print("\n{a0, wrong_a1†} =")
+print(wrong_cross)
+
+print(
+    "\nDoes {a0, wrong_a1†} = 0 ?",
+    np.allclose(wrong_cross, zero_matrix)
+)
