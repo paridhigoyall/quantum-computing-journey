@@ -1,30 +1,13 @@
 import numpy as np
 
-
-# ============================================================
-# Jordan-Wigner Transformation
-# ============================================================
-
-print("Jordan-Wigner Transformation")
-print("============================")
-print()
-
-print("Jordan-Wigner mapping:")
-print()
-
-print("a0† = (X0 - iY0) / 2")
-print("a0  = (X0 + iY0) / 2")
-print()
-
-print("a1† = Z0 (X1 - iY1) / 2")
-print("a1  = Z0 (X1 + iY1) / 2")
+np.set_printoptions(precision=4, suppress=True)
 
 
 # ============================================================
-# Pauli matrices
+# BASIC MATRICES
 # ============================================================
 
-I2 = np.eye(2, dtype=complex)
+I = np.eye(2, dtype=complex)
 
 X = np.array([
     [0, 1],
@@ -42,11 +25,41 @@ Z = np.array([
 ], dtype=complex)
 
 
+def kron(a, b):
+    return np.kron(a, b)
+
+
+def close(a, b, tol=1e-10):
+    return np.allclose(a, b, atol=tol)
+
+
+def anticommutator(a, b):
+    return a @ b + b @ a
+
+
 # ============================================================
-# Single-mode fermionic operators
+# JORDAN-WIGNER TRANSFORMATION
 # ============================================================
 
-a_dagger = np.array([
+print("Jordan-Wigner Transformation")
+print("============================\n")
+
+print("Jordan-Wigner mapping:\n")
+
+print("a0† = (X0 - iY0) / 2")
+print("a0  = (X0 + iY0) / 2")
+print()
+
+print("a1† = Z0 (X1 - iY1) / 2")
+print("a1  = Z0 (X1 + iY1) / 2")
+print()
+
+
+# ============================================================
+# SINGLE-MODE FERMIONIC OPERATORS
+# ============================================================
+
+a_dag = np.array([
     [0, 0],
     [1, 0]
 ], dtype=complex)
@@ -56,474 +69,362 @@ a = np.array([
     [0, 0]
 ], dtype=complex)
 
-# Number operator
-number_operator = a_dagger @ a
 
-zero = np.array([1, 0], dtype=complex)
-one = np.array([0, 1], dtype=complex)
+# ============================================================
+# ONE-MODE NUMBER OPERATOR
+# ============================================================
 
+n = a_dag @ a
 
-print()
 print("One-mode number operator:")
-print(number_operator)
+print(n)
 
-print()
+ket0 = np.array([1, 0], dtype=complex)
+ket1 = np.array([0, 1], dtype=complex)
+
 print(
-    "Occupation of |0> =",
-    np.vdot(zero, number_operator @ zero).real
+    "\nOccupation of |0> =",
+    np.real(ket0.conj() @ n @ ket0)
 )
 
 print(
     "Occupation of |1> =",
-    np.vdot(one, number_operator @ one).real
+    np.real(ket1.conj() @ n @ ket1)
 )
 
 
 # ============================================================
-# Two-mode Jordan-Wigner operators
-#
-# Basis ordering:
-#
-# |00>
-# |01>
-# |10>
-# |11>
+# TWO-MODE FERMIONIC OPERATORS
 # ============================================================
 
-a0_dagger = np.kron(a_dagger, I2)
-a0 = np.kron(a, I2)
+a0_dag = kron(a_dag, I)
+a0 = kron(a, I)
 
-a1_dagger = np.kron(Z, a_dagger)
-a1 = np.kron(Z, a)
+a1_dag = kron(Z, a_dag)
+a1 = kron(Z, a)
 
 
 # ============================================================
-# Two-mode number operators
+# TWO-MODE NUMBER OPERATORS
 # ============================================================
 
-n0 = a0_dagger @ a0
-n1 = a1_dagger @ a1
+n0 = a0_dag @ a0
+n1 = a1_dag @ a1
 
-print()
-print("Two-mode number operators:")
+print("\nTwo-mode number operators:")
 
-print()
-print("n0 =")
+print("\nn0 =")
 print(n0)
 
-print()
-print("n1 =")
+print("\nn1 =")
 print(n1)
 
 
 # ============================================================
-# Fermionic occupation states
+# FERMIONIC OCCUPATION STATES
 # ============================================================
 
 basis_states = {
-
-    "|00>": np.array(
-        [1, 0, 0, 0],
-        dtype=complex
-    ),
-
-    "|01>": np.array(
-        [0, 1, 0, 0],
-        dtype=complex
-    ),
-
-    "|10>": np.array(
-        [0, 0, 1, 0],
-        dtype=complex
-    ),
-
-    "|11>": np.array(
-        [0, 0, 0, 1],
-        dtype=complex
-    )
+    "|00>": np.array([1, 0, 0, 0], dtype=complex),
+    "|01>": np.array([0, 1, 0, 0], dtype=complex),
+    "|10>": np.array([0, 0, 1, 0], dtype=complex),
+    "|11>": np.array([0, 0, 0, 1], dtype=complex),
 }
 
+print("\nFermionic occupation states:\n")
 
-print()
-print("Fermionic occupation states:")
-print()
+for name, state in basis_states.items():
 
-for label, state in basis_states.items():
+    occupation_0 = np.real(
+        state.conj() @ n0 @ state
+    )
 
-    occupation0 = np.vdot(
-        state,
-        n0 @ state
-    ).real
-
-    occupation1 = np.vdot(
-        state,
-        n1 @ state
-    ).real
+    occupation_1 = np.real(
+        state.conj() @ n1 @ state
+    )
 
     print(
-        f"{label} -> "
-        f"n0={int(round(occupation0))}, "
-        f"n1={int(round(occupation1))}"
+        f"{name} -> "
+        f"n0={int(round(occupation_0))}, "
+        f"n1={int(round(occupation_1))}"
     )
 
 
 # ============================================================
-# Total particle-number operator
+# TOTAL PARTICLE NUMBER
 # ============================================================
 
-N = n0 + n1
+N_total = n0 + n1
 
-print()
-print("Total particle-number operator:")
-print(N)
+print("\nTotal particle-number operator:")
+print(N_total)
 
-print()
-print("Total particle number:")
+print("\nTotal particle number:")
 
-for label, state in basis_states.items():
+for name, state in basis_states.items():
 
-    total_number = np.vdot(
-        state,
-        N @ state
-    ).real
+    particle_number = np.real(
+        state.conj() @ N_total @ state
+    )
 
     print(
-        f"{label} -> "
-        f"N={int(round(total_number))}"
+        f"{name} -> N={int(round(particle_number))}"
     )
 
 
 # ============================================================
-# Connection to VQE
+# CONNECTION TO VQE
 # ============================================================
 
-print()
-print("Connection to VQE")
-print("==================")
+print("""
+Connection to VQE
+==================
 
-print()
-print("Fermionic Hamiltonian")
-print("        ↓")
-print("Jordan-Wigner transformation")
-print("        ↓")
-print("Pauli Hamiltonian")
-print("        ↓")
-print("Qubit Hamiltonian")
-print("        ↓")
-print("VQE")
-
-print()
-print("Day 39 foundation complete.")
+Fermionic Hamiltonian
+        ↓
+Jordan-Wigner transformation
+        ↓
+Pauli Hamiltonian
+        ↓
+Qubit Hamiltonian
+        ↓
+VQE
+""")
 
 
 # ============================================================
-# Single-mode fermionic operators
+# SINGLE-MODE OPERATOR ACTION
 # ============================================================
 
-print()
 print("Single-mode fermionic operators:")
 print("================================")
 
-print()
-print("a† =")
-print(a_dagger)
+print("\na† =")
+print(a_dag)
 
-print()
-print("a =")
+print("\na =")
 print(a)
 
-
-# ============================================================
-# Operator action
-# ============================================================
-
-print()
-print("Operator action:")
+print("\nOperator action:")
 print("================")
 
-print(
-    "a† |0> =",
-    a_dagger @ zero
-)
-
-print(
-    "a  |1> =",
-    a @ one
-)
-
-print(
-    "a† |1> =",
-    a_dagger @ one
-)
-
-print(
-    "a  |0> =",
-    a @ zero
-)
+print("a† |0> =", a_dag @ ket0)
+print("a  |1> =", a @ ket1)
+print("a† |1> =", a_dag @ ket1)
+print("a  |0> =", a @ ket0)
 
 
 # ============================================================
-# Fermionic anticommutation
-#
-# {a, a†} = a a† + a† a
-#
-# Expected:
-#
-# {a, a†} = I
+# FERMIONIC ANTICOMMUTATION
 # ============================================================
 
-anticommutator = (
-    a @ a_dagger
-    +
-    a_dagger @ a
+single_anticommutator = anticommutator(
+    a,
+    a_dag
 )
 
-print()
-print("Fermionic anticommutation:")
+print("\nFermionic anticommutation:")
 print("==========================")
 
-print()
-print("{a, a†} =")
-print(anticommutator)
+print("\n{a, a†} =")
+print(single_anticommutator)
 
-print()
-print("Identity I =")
-print(I2)
+print("\nIdentity I =")
+print(I)
 
-print()
 print(
-    "Does {a, a†} = I ?",
-    np.allclose(
-        anticommutator,
-        I2
-    )
+    "\nDoes {a, a†} = I ?",
+    close(single_anticommutator, I)
 )
 
 
 # ============================================================
-# Two-mode fermionic operators
+# TWO-MODE FERMIONIC OPERATORS
 # ============================================================
 
-print()
-print("Two-mode fermionic operators:")
+print("\nTwo-mode fermionic operators:")
 print("=============================")
 
-print()
-print("a0† =")
-print(a0_dagger)
+print("\na0† =")
+print(a0_dag)
 
-print()
-print("a0 =")
+print("\na0 =")
 print(a0)
 
-print()
-print("a1† =")
-print(a1_dagger)
+print("\na1† =")
+print(a1_dag)
 
-print()
-print("a1 =")
+print("\na1 =")
 print(a1)
 
 
 # ============================================================
-# Cross-mode anticommutation
-#
-# {a0, a1†} = 0
-#
-# {a0, a1} = 0
+# CROSS-MODE ANTICOMMUTATION
 # ============================================================
 
-cross_dagger = (
-    a0 @ a1_dagger
-    +
-    a1_dagger @ a0
+anti_a0_a1dag = anticommutator(
+    a0,
+    a1_dag
 )
 
-cross_annihilation = (
-    a0 @ a1
-    +
-    a1 @ a0
+anti_a0_a1 = anticommutator(
+    a0,
+    a1
 )
 
-zero4 = np.zeros(
-    (4, 4),
-    dtype=complex
-)
-
-
-print()
-print("Cross-mode anticommutation:")
+print("\nCross-mode anticommutation:")
 print("============================")
 
-print()
-print("{a0, a1†} =")
-print(cross_dagger)
+print("\n{a0, a1†} =")
+print(anti_a0_a1dag)
 
-print()
 print(
-    "Does {a0, a1†} = 0 ?",
-    np.allclose(
-        cross_dagger,
-        zero4
+    "\nDoes {a0, a1†} = 0 ?",
+    close(
+        anti_a0_a1dag,
+        np.zeros((4, 4), dtype=complex)
     )
 )
 
-print()
-print("{a0, a1} =")
-print(cross_annihilation)
+print("\n{a0, a1} =")
+print(anti_a0_a1)
 
-print()
 print(
-    "Does {a0, a1} = 0 ?",
-    np.allclose(
-        cross_annihilation,
-        zero4
+    "\nDoes {a0, a1} = 0 ?",
+    close(
+        anti_a0_a1,
+        np.zeros((4, 4), dtype=complex)
     )
 )
 
 
 # ============================================================
-# Why the Jordan-Wigner Z-string is necessary
+# WHY THE Z-STRING IS NECESSARY
 # ============================================================
 
-wrong_a1_dagger = np.kron(
-    I2,
-    a_dagger
+wrong_a1_dag = kron(I, a_dag)
+
+wrong_anticommutator = anticommutator(
+    a0,
+    wrong_a1_dag
 )
 
-wrong_cross = (
-    a0 @ wrong_a1_dagger
-    +
-    wrong_a1_dagger @ a0
-)
-
-print()
-print("Without the Jordan-Wigner Z-string:")
+print("\nWithout the Jordan-Wigner Z-string:")
 print("===================================")
 
-print()
-print("{a0, wrong_a1†} =")
-print(wrong_cross)
+print("\n{a0, wrong_a1†} =")
+print(wrong_anticommutator)
 
-print()
 print(
-    "Does {a0, wrong_a1†} = 0 ?",
-    np.allclose(
-        wrong_cross,
-        zero4
+    "\nDoes {a0, wrong_a1†} = 0 ?",
+    close(
+        wrong_anticommutator,
+        np.zeros((4, 4), dtype=complex)
     )
 )
 
 
 # ============================================================
-# PART 1
-#
-# Number operator -> Pauli Z
-#
-# n = a†a
-#
-# Jordan-Wigner result:
-#
-# n = (I - Z) / 2
+# NUMBER OPERATOR -> PAULI Z
 # ============================================================
 
-print()
-print("Number Operator -> Pauli Z")
+n_from_z = (I - Z) / 2
+
+print("\nNumber Operator -> Pauli Z")
 print("===========================")
 
-number_from_z = (
-    I2 - Z
-) / 2
+print("\nIdentity I:")
+print(I)
 
-
-print()
-print("Identity I:")
-print(I2)
-
-print()
-print("Pauli Z:")
+print("\nPauli Z:")
 print(Z)
 
-print()
-print("(I - Z) / 2:")
-print(number_from_z)
+print("\n(I - Z) / 2:")
+print(n_from_z)
 
-print()
-print("Original number operator:")
-print(number_operator)
+print("\nOriginal number operator:")
+print(n)
 
-print()
 print(
-    "Does (I - Z) / 2 equal n ?",
-    np.allclose(
-        number_from_z,
-        number_operator
-    )
+    "\nDoes (I - Z) / 2 equal n ?",
+    close(n_from_z, n)
 )
 
-print()
-print("Mathematical result:")
+print("\nMathematical result:")
 print("n = (I - Z) / 2")
+
+
 # ============================================================
-# Fermionic hopping term -> Pauli operators
-#
-# Hopping term:
-#
-#     a0† a1 + a1† a0
-#
-# Under Jordan-Wigner:
-#
-#     a0† a1 + a1† a0
-#
-# becomes:
-#
-#     (X0 X1 + Y0 Y1) / 2
+# TWO-MODE NUMBER OPERATORS IN PAULI FORM
 # ============================================================
 
-print()
-print("Fermionic Hopping -> Pauli Operators")
-print("=====================================")
+identity_4 = kron(I, I)
 
-# Fermionic hopping operator
-hopping_fermionic = (
-    a0_dagger @ a1
-    +
-    a1_dagger @ a0
+Z0 = kron(Z, I)
+Z1 = kron(I, Z)
+
+n0_pauli = (
+    identity_4 - Z0
+) / 2
+
+n1_pauli = (
+    identity_4 - Z1
+) / 2
+
+print("\nTwo-mode number operators in Pauli form:")
+print("=========================================")
+
+print("\nn0 = (I - Z0) / 2")
+print(n0_pauli)
+
+print("\nn1 = (I - Z1) / 2")
+print(n1_pauli)
+
+print(
+    "\nDoes Pauli n0 equal fermionic n0 ?",
+    close(n0_pauli, n0)
 )
 
-# Two-qubit Pauli operators
-X0X1 = np.kron(X, X)
-Y0Y1 = np.kron(Y, Y)
+print(
+    "Does Pauli n1 equal fermionic n1 ?",
+    close(n1_pauli, n1)
+)
 
-# Jordan-Wigner Pauli representation
+
+# ============================================================
+# FERMIONIC HOPPING -> PAULI OPERATORS
+# ============================================================
+
+hopping_fermionic = (
+    a0_dag @ a1
+    +
+    a1_dag @ a0
+)
+
+X0X1 = kron(X, X)
+Y0Y1 = kron(Y, Y)
+
 hopping_pauli = (
     X0X1 + Y0Y1
 ) / 2
 
+print("\nFermionic Hopping -> Pauli Operators")
+print("=====================================")
 
-print()
-print("Fermionic hopping operator:")
+print("\nFermionic hopping operator:")
 print("a0† a1 + a1† a0 =")
 print(hopping_fermionic)
 
-print()
-print("Pauli representation:")
+print("\nPauli representation:")
 print("(X0 X1 + Y0 Y1) / 2 =")
 print(hopping_pauli)
 
-
-# ============================================================
-# Verify the mapping
-# ============================================================
-
-print()
-print("Verifying Jordan-Wigner hopping mapping:")
+print("\nVerifying Jordan-Wigner hopping mapping:")
 print("=========================================")
 
-print()
 print(
     "Does fermionic hopping equal Pauli hopping?",
-    np.allclose(
+    close(
         hopping_fermionic,
         hopping_pauli
     )
@@ -531,185 +432,128 @@ print(
 
 
 # ============================================================
-# Individual Pauli products
+# INDIVIDUAL PAULI PRODUCTS
 # ============================================================
 
-print()
-print("Individual Pauli products:")
+print("\nIndividual Pauli products:")
 print("==========================")
 
-print()
-print("X0 X1 =")
+print("\nX0 X1 =")
 print(X0X1)
 
-print()
-print("Y0 Y1 =")
+print("\nY0 Y1 =")
 print(Y0Y1)
 
 
 # ============================================================
-# Hopping action on occupation states
+# HOPPING ACTION ON OCCUPATION STATES
 # ============================================================
 
-print()
-print("Hopping action on occupation states:")
+print("\nHopping action on occupation states:")
 print("=====================================")
 
-for label, state in basis_states.items():
+for name, state in basis_states.items():
 
     result = hopping_fermionic @ state
 
-    print()
-    print(f"{label} ->")
+    print(f"\n{name} ->")
     print(result)
 
 
+print("""
+Physical interpretation:
+========================
+
+|00> -> no particle available to hop
+|11> -> both modes occupied; no allowed single-particle hop
+|01> <-> |10>
+A particle moves between mode 0 and mode 1.
+
+Jordan-Wigner hopping rule:
+
+a0† a1 + a1† a0
+        ↓
+(X0 X1 + Y0 Y1) / 2
+""")
+
+
 # ============================================================
-# Physical interpretation
-# ============================================================
-
-print()
-print("Physical interpretation:")
-print("========================")
-
-print()
-print("|00> -> no particle available to hop")
-
-print("|11> -> both modes occupied; no allowed single-particle hop")
-
-print("|01> <-> |10>")
-
-print("A particle moves between mode 0 and mode 1.")
-
-print()
-print("Jordan-Wigner hopping rule:")
-print()
-print("a0† a1 + a1† a0")
-print("        ↓")
-print("(X0 X1 + Y0 Y1) / 2")
-# ============================================================
-# Two-Mode Fermionic Hamiltonian
-#
-# H_f =
-#     eps0 n0
-#   + eps1 n1
-#   + t (a0† a1 + a1† a0)
-#   + U n0 n1
-#
-# We will construct it in two ways:
-#
-# 1. Directly with fermionic operators
-# 2. After Jordan-Wigner transformation
-#
-# Then compare their matrices and eigenvalues.
+# TWO-MODE FERMIONIC HAMILTONIAN
 # ============================================================
 
-print()
-print("Two-Mode Fermionic Hamiltonian")
+print("\nTwo-Mode Fermionic Hamiltonian")
 print("==============================")
 
-# Model parameters
 eps0 = 0.7
 eps1 = 1.1
 t = -0.4
 U = 0.8
 
-print()
-print("Hamiltonian parameters:")
+print("\nHamiltonian parameters:")
 print(f"eps0 = {eps0}")
 print(f"eps1 = {eps1}")
 print(f"t    = {t}")
 print(f"U    = {U}")
 
 
-# ============================================================
-# Fermionic Hamiltonian
-# ============================================================
+# H = eps0*n0 + eps1*n1
+#     + t*(a0†a1 + a1†a0)
+#     + U*n0*n1
 
 H_fermionic = (
     eps0 * n0
-    + eps1 * n1
-    + t * (
-        a0_dagger @ a1
-        + a1_dagger @ a0
-    )
-    + U * (
-        n0 @ n1
-    )
+    +
+    eps1 * n1
+    +
+    t * hopping_fermionic
+    +
+    U * (n0 @ n1)
 )
 
 
-print()
-print("Fermionic Hamiltonian:")
-print("H_f =")
-print(H_fermionic)
-
-
 # ============================================================
-# Jordan-Wigner Pauli representation
-#
-# n0 = (I - Z0) / 2
-# n1 = (I - Z1) / 2
-#
-# hopping =
-# (X0X1 + Y0Y1) / 2
+# JORDAN-WIGNER QUBIT HAMILTONIAN
 # ============================================================
 
-I4 = np.kron(I2, I2)
-
-Z0 = np.kron(Z, I2)
-Z1 = np.kron(I2, Z)
-
-X0X1 = np.kron(X, X)
-Y0Y1 = np.kron(Y, Y)
-
-n0_pauli = (
-    I4 - Z0
-) / 2
-
-n1_pauli = (
-    I4 - Z1
-) / 2
-
-hopping_pauli = (
-    X0X1 + Y0Y1
-) / 2
+ZZ = kron(Z, Z)
 
 interaction_pauli = (
-    n0_pauli @ n1_pauli
-)
-
-
-# ============================================================
-# Qubit Hamiltonian
-# ============================================================
+    identity_4
+    - Z0
+    - Z1
+    + ZZ
+) / 4
 
 H_qubit = (
     eps0 * n0_pauli
-    + eps1 * n1_pauli
-    + t * hopping_pauli
-    + U * interaction_pauli
+    +
+    eps1 * n1_pauli
+    +
+    t * hopping_pauli
+    +
+    U * interaction_pauli
 )
 
 
-print()
-print("Jordan-Wigner Pauli Hamiltonian:")
+print("\nFermionic Hamiltonian:")
+print("H_f =")
+print(H_fermionic)
+
+print("\nJordan-Wigner Pauli Hamiltonian:")
 print("H_qubit =")
 print(H_qubit)
 
 
 # ============================================================
-# Verify matrix equality
+# VERIFY FERMIONIC -> QUBIT MAPPING
 # ============================================================
 
-print()
-print("Verifying fermionic -> qubit mapping:")
+print("\nVerifying fermionic -> qubit mapping:")
 print("======================================")
 
-print()
 print(
     "Does H_fermionic = H_qubit ?",
-    np.allclose(
+    close(
         H_fermionic,
         H_qubit
     )
@@ -717,7 +561,7 @@ print(
 
 
 # ============================================================
-# Eigenvalues
+# HAMILTONIAN EIGENVALUES
 # ============================================================
 
 fermionic_eigenvalues = np.linalg.eigvalsh(
@@ -728,88 +572,247 @@ qubit_eigenvalues = np.linalg.eigvalsh(
     H_qubit
 )
 
-print()
-print("Fermionic Hamiltonian eigenvalues:")
+print("\nFermionic Hamiltonian eigenvalues:")
 print(fermionic_eigenvalues)
 
-print()
-print("Qubit Hamiltonian eigenvalues:")
+print("\nQubit Hamiltonian eigenvalues:")
 print(qubit_eigenvalues)
 
-
-print()
 print(
-    "Do the eigenvalues match?",
+    "\nDo the eigenvalues match?",
     np.allclose(
         fermionic_eigenvalues,
-        qubit_eigenvalues
+        qubit_eigenvalues,
+        atol=1e-10
     )
 )
 
 
 # ============================================================
-# Ground-state energy
+# PARTICLE-NUMBER SECTORS
 # ============================================================
 
-fermionic_ground_energy = np.min(
-    fermionic_eigenvalues
-)
+print("\nParticle-number sectors:")
+print("========================")
 
-qubit_ground_energy = np.min(
-    qubit_eigenvalues
-)
+print("\nN = 0:")
+print("  |00>")
 
-print()
-print("Ground-state energy:")
-print(
-    f"Fermionic = {fermionic_ground_energy:.10f}"
-)
+print("\nN = 1:")
+print("  |01>")
+print("  |10>")
 
-print(
-    f"Qubit     = {qubit_ground_energy:.10f}"
-)
+print("\nN = 2:")
+print("  |11>")
 
 
 # ============================================================
-# Final summary
+# ONE-PARTICLE SECTOR
 # ============================================================
 
-print()
-print("==========================================")
-print("FERMIONIC -> JORDAN-WIGNER -> QUBIT")
-print("==========================================")
+# Basis ordering:
+#
+# |00>
+# |01>
+# |10>
+# |11>
+#
+# N=1 sector:
+#
+# |01>
+# |10>
 
-print()
-print("Occupation:")
-print("n_i = (I - Z_i) / 2")
+one_particle_indices = [1, 2]
 
-print()
-print("Hopping:")
-print(
-    "a0†a1 + a1†a0 = "
-    "(X0X1 + Y0Y1) / 2"
+H_one_particle = H_qubit[
+    np.ix_(
+        one_particle_indices,
+        one_particle_indices
+    )
+]
+
+print("\nOne-particle sector:")
+print("====================")
+
+print("Basis = {|01>, |10>}")
+
+print("\nRestricted Hamiltonian:")
+print(H_one_particle)
+
+
+# ============================================================
+# ONE-PARTICLE EIGENVALUES
+# ============================================================
+
+one_particle_eigenvalues, one_particle_vectors = (
+    np.linalg.eigh(H_one_particle)
 )
 
-print()
-print("Interaction:")
-print(
-    "n0 n1 = "
-    "[(I-Z0)/2][(I-Z1)/2]"
-)
-
-print()
-print(
-    "Hamiltonian matrices identical?",
-    np.allclose(H_fermionic, H_qubit)
-)
+print("\nOne-particle-sector eigenvalues:")
+print(one_particle_eigenvalues)
 
 print(
-    "Spectra identical?",
-    np.allclose(
-        fermionic_eigenvalues,
-        qubit_eigenvalues
+    "\nLowest energy in N=1 sector = "
+    f"{one_particle_eigenvalues[0]:.10f}"
+)
+
+
+# ============================================================
+# ONE-PARTICLE GROUND STATE
+# ============================================================
+
+ground_vector = one_particle_vectors[:, 0]
+
+print("\nOne-particle ground-state vector:")
+print(ground_vector)
+
+print("\nInterpretation:")
+print("|psi> = c0 |01> + c1 |10>")
+
+print(
+    f"c0 = {ground_vector[0]:.10f}"
+)
+
+print(
+    f"c1 = {ground_vector[1]:.10f}"
+)
+
+
+# ============================================================
+# FULL HAMILTONIAN GROUND STATE
+# ============================================================
+
+full_eigenvalues, full_eigenvectors = np.linalg.eigh(
+    H_qubit
+)
+
+full_ground_energy = full_eigenvalues[0]
+full_ground_state = full_eigenvectors[:, 0]
+
+print("\nFull Hamiltonian ground state:")
+print("==============================")
+
+print(
+    f"Ground-state energy = "
+    f"{full_ground_energy:.10f}"
+)
+
+print(
+    "\nGround-state vector in "
+    "{|00>, |01>, |10>, |11>}:"
+)
+
+print(full_ground_state)
+
+
+# ============================================================
+# GROUND-STATE PARTICLE NUMBER
+# ============================================================
+
+ground_particle_number = np.real(
+    full_ground_state.conj()
+    @ N_total
+    @ full_ground_state
+)
+
+print(
+    "\nParticle number expectation of "
+    f"full ground state = "
+    f"{ground_particle_number:.10f}"
+)
+
+
+# ============================================================
+# EXPANDED PAULI HAMILTONIAN
+# ============================================================
+
+H_pauli_expanded = (
+    eps0 * (identity_4 - Z0) / 2
+    +
+    eps1 * (identity_4 - Z1) / 2
+    +
+    t * (X0X1 + Y0Y1) / 2
+    +
+    U * (
+        identity_4
+        - Z0
+        - Z1
+        + ZZ
+    ) / 4
+)
+
+print("\nExpanded Pauli Hamiltonian:")
+print("===========================")
+
+print(
+    "H = eps0*(I-Z0)/2"
+    " + eps1*(I-Z1)/2"
+    " + t*(X0X1+Y0Y1)/2"
+    " + U*(I-Z0-Z1+Z0Z1)/4"
+)
+
+print("\nExpanded matrix:")
+print(H_pauli_expanded)
+
+print(
+    "\nDoes expanded Pauli Hamiltonian "
+    "equal H_qubit ?",
+    close(
+        H_pauli_expanded,
+        H_qubit
     )
 )
 
-print()
-print("Jordan-Wigner Hamiltonian construction complete.")
+
+# ============================================================
+# FINAL SUMMARY
+# ============================================================
+
+print("""
+==========================================
+FERMIONIC -> JORDAN-WIGNER -> QUBIT -> VQE
+==========================================
+
+What we established:
+
+1. Fermions use creation/annihilation operators.
+
+2. Fermionic operators obey anticommutation rules.
+
+3. Jordan-Wigner adds the required Z-string.
+
+4. Number operator:
+       n_i = (I - Z_i) / 2
+
+5. Hopping:
+       a0†a1 + a1†a0
+       = (X0X1 + Y0Y1) / 2
+
+6. Interaction:
+       n0n1
+       = (I-Z0-Z1+Z0Z1) / 4
+
+7. Fermionic and qubit Hamiltonians are identical.
+
+8. Therefore their spectra are identical.
+
+9. Particle-number sectors can be identified.
+
+10. The physical N=1 sector can be isolated.
+
+Practical pipeline:
+
+Physical fermion problem
+        ↓
+Fermionic Hamiltonian
+        ↓
+Jordan-Wigner transformation
+        ↓
+Pauli / qubit Hamiltonian
+        ↓
+Choose physical particle-number sector
+        ↓
+VQE
+        ↓
+Ground-state energy
+""")
