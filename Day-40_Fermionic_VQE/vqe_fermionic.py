@@ -3,7 +3,7 @@ from scipy.optimize import minimize
 
 
 # ============================================================
-# DAY 40 - FERMIONIC HAMILTONIAN -> JORDAN-WIGNER -> VQE
+# DAY 40 - FERMIONIC VQE
 # ============================================================
 
 np.set_printoptions(precision=6, suppress=True)
@@ -31,29 +31,28 @@ Z = np.array([
 ], dtype=complex)
 
 
-def kron(a, b):
-    return np.kron(a, b)
+# ============================================================
+# 2. TWO-QUBIT OPERATORS
+# ============================================================
 
+I4 = np.kron(I, I)
 
-# Two-qubit operators
-I4 = kron(I, I)
+X0 = np.kron(X, I)
+X1 = np.kron(I, X)
 
-X0 = kron(X, I)
-X1 = kron(I, X)
+Y0 = np.kron(Y, I)
+Y1 = np.kron(I, Y)
 
-Y0 = kron(Y, I)
-Y1 = kron(I, Y)
+Z0 = np.kron(Z, I)
+Z1 = np.kron(I, Z)
 
-Z0 = kron(Z, I)
-Z1 = kron(I, Z)
-
-X0X1 = kron(X, X)
-Y0Y1 = kron(Y, Y)
-Z0Z1 = kron(Z, Z)
+X0X1 = np.kron(X, X)
+Y0Y1 = np.kron(Y, Y)
+Z0Z1 = np.kron(Z, Z)
 
 
 # ============================================================
-# 2. PHYSICAL FERMIONIC MODEL
+# 3. PHYSICAL FERMIONIC MODEL
 # ============================================================
 
 eps0 = 0.7
@@ -73,16 +72,7 @@ print(f"U    = {U}")
 
 
 # ============================================================
-# 3. JORDAN-WIGNER MAPPED HAMILTONIAN
-#
-# n0 = (I - Z0) / 2
-# n1 = (I - Z1) / 2
-#
-# hopping =
-# (X0X1 + Y0Y1) / 2
-#
-# n0*n1 =
-# (I - Z0 - Z1 + Z0Z1) / 4
+# 4. JORDAN-WIGNER MAPPING
 # ============================================================
 
 n0 = (I4 - Z0) / 2
@@ -91,9 +81,16 @@ n1 = (I4 - Z1) / 2
 hopping = (X0X1 + Y0Y1) / 2
 
 interaction = (
-    I4 - Z0 - Z1 + Z0Z1
+    I4
+    - Z0
+    - Z1
+    + Z0Z1
 ) / 4
 
+
+# ============================================================
+# 5. QUBIT HAMILTONIAN
+# ============================================================
 
 H = (
     eps0 * n0
@@ -102,10 +99,6 @@ H = (
     + U * interaction
 )
 
-
-# ============================================================
-# 4. DISPLAY PAULI HAMILTONIAN
-# ============================================================
 
 print("\n" + "=" * 60)
 print("JORDAN-WIGNER QUBIT HAMILTONIAN")
@@ -119,7 +112,10 @@ eps0 * (I - Z0)/2
 + U * (I - Z0 - Z1 + Z0Z1)/4
 """)
 
-print("Numerical Pauli coefficients:")
+
+# ============================================================
+# 6. PAULI COEFFICIENTS
+# ============================================================
 
 identity_coeff = (
     eps0 / 2
@@ -142,6 +138,9 @@ zz_coeff = U / 4
 xx_coeff = t / 2
 yy_coeff = t / 2
 
+
+print("Numerical Pauli coefficients:")
+
 print(f"I      : {identity_coeff:+.6f}")
 print(f"Z0     : {z0_coeff:+.6f}")
 print(f"Z1     : {z1_coeff:+.6f}")
@@ -154,44 +153,41 @@ print(H)
 
 
 # ============================================================
-# 5. EXACT DIAGONALIZATION
+# 7. EXACT FULL HAMILTONIAN SOLUTION
 #
-# We calculate the exact answer only for verification.
-# VQE itself will not use this value during optimization.
+# This includes every particle-number sector.
+#
+# IMPORTANT:
+# The absolute ground state of this Hamiltonian is |00>
+# with energy 0.
+#
+# Our VQE below intentionally works in the ONE-PARTICLE
+# sector because that is the sector containing |01> and |10>.
 # ============================================================
 
 exact_eigenvalues, exact_eigenvectors = np.linalg.eigh(H)
 
-exact_ground_energy = exact_eigenvalues[0]
-exact_ground_state = exact_eigenvectors[:, 0]
+full_ground_energy = exact_eigenvalues[0]
+full_ground_state = exact_eigenvectors[:, 0]
 
 print("\n" + "=" * 60)
-print("EXACT SOLUTION")
+print("EXACT FULL HAMILTONIAN SOLUTION")
 print("=" * 60)
 
 print("\nEigenvalues:")
 print(exact_eigenvalues)
 
 print(
-    f"\nExact ground-state energy = "
-    f"{exact_ground_energy:.10f}"
+    f"\nFull ground-state energy = "
+    f"{full_ground_energy:.10f}"
 )
 
-print("\nExact ground state:")
-print(exact_ground_state)
+print("\nFull ground state:")
+print(full_ground_state)
 
 
 # ============================================================
-# 6. PARTICLE NUMBER
-#
-# N = n0 + n1
-#
-# For the one-particle problem:
-#
-# |01>
-# |10>
-#
-# are the physically relevant states.
+# 8. PARTICLE NUMBER OPERATOR
 # ============================================================
 
 N = n0 + n1
@@ -202,6 +198,7 @@ basis_states = {
     "|10>": np.array([0, 0, 1, 0], dtype=complex),
     "|11>": np.array([0, 0, 0, 1], dtype=complex),
 }
+
 
 print("\n" + "=" * 60)
 print("PARTICLE NUMBER")
@@ -220,14 +217,7 @@ for name, state in basis_states.items():
 
 
 # ============================================================
-# 7. ONE-PARTICLE SUBSPACE
-#
-# We keep:
-#
-# |01>
-# |10>
-#
-# because both contain exactly one particle.
+# 9. ONE-PARTICLE SECTOR
 # ============================================================
 
 one_particle_indices = [1, 2]
@@ -239,6 +229,7 @@ H_one_particle = H[
     )
 ]
 
+
 print("\n" + "=" * 60)
 print("ONE-PARTICLE SECTOR")
 print("=" * 60)
@@ -249,41 +240,49 @@ print("|01>, |10>")
 print("\nRestricted Hamiltonian:")
 print(H_one_particle)
 
+
 sector_eigenvalues, sector_eigenvectors = np.linalg.eigh(
     H_one_particle
 )
 
-sector_ground_energy = sector_eigenvalues[0]
+one_particle_ground_energy = sector_eigenvalues[0]
+
+one_particle_ground_vector = sector_eigenvectors[:, 0]
+
 
 print("\nOne-particle eigenvalues:")
 print(sector_eigenvalues)
 
 print(
     f"\nOne-particle ground energy = "
-    f"{sector_ground_energy:.10f}"
+    f"{one_particle_ground_energy:.10f}"
 )
+
+print("\nExact one-particle ground state coefficients:")
+print(one_particle_ground_vector)
 
 
 # ============================================================
-# 8. VQE ANSATZ
+# 10. VQE ANSATZ
 #
-# We need a state that stays inside the one-particle sector.
+# We need the ansatz to actually MIX |01> and |10>.
 #
-# Starting state:
+# The previous ansatz used:
 #
-# |01>
+#     |01> + (-i)|10>
 #
-# Then use an XX+YY rotation to mix:
+# which made the real hopping expectation vanish.
 #
-# |01> <-> |10>
+# Here we deliberately use a REAL superposition:
 #
-# The ansatz therefore has the form:
+#     |psi(theta)>
 #
-# |psi(theta)> =
-# cos(theta/2)|01>
-# - i sin(theta/2)|10>
+#       = cos(theta/2)|01>
+#       + sin(theta/2)|10>
 #
-# The exact phase convention is not important for the energy.
+# This allows <X0X1 + Y0Y1> to contribute.
+#
+# theta controls how much amplitude is placed in each state.
 # ============================================================
 
 def ansatz_state(theta):
@@ -291,13 +290,13 @@ def ansatz_state(theta):
     state = np.zeros(4, dtype=complex)
 
     state[1] = np.cos(theta / 2)
-    state[2] = -1j * np.sin(theta / 2)
+    state[2] = np.sin(theta / 2)
 
     return state
 
 
 # ============================================================
-# 9. EXPECTATION VALUE
+# 11. EXPECTATION VALUE
 # ============================================================
 
 def expectation(state, operator):
@@ -308,7 +307,7 @@ def expectation(state, operator):
 
 
 # ============================================================
-# 10. VQE ENERGY FUNCTION
+# 12. VQE ENERGY
 # ============================================================
 
 def vqe_energy(parameters):
@@ -317,25 +316,26 @@ def vqe_energy(parameters):
 
     state = ansatz_state(theta)
 
-    energy = expectation(
+    return expectation(
         state,
         H
     )
 
-    return energy
-
 
 # ============================================================
-# 11. INITIAL VQE GUESS
+# 13. INITIAL STATE
 # ============================================================
 
 initial_theta = 0.5
 
-initial_state = ansatz_state(initial_theta)
+initial_state = ansatz_state(
+    initial_theta
+)
 
 initial_energy = vqe_energy(
     [initial_theta]
 )
+
 
 print("\n" + "=" * 60)
 print("INITIAL VQE STATE")
@@ -356,7 +356,7 @@ print(
 
 
 # ============================================================
-# 12. VQE OPTIMIZATION
+# 14. VQE OPTIMIZATION
 # ============================================================
 
 print("\n" + "=" * 60)
@@ -396,15 +396,17 @@ result = minimize(
 
 
 # ============================================================
-# 13. OPTIMIZATION RESULT
+# 15. OPTIMIZATION RESULT
 # ============================================================
 
 best_theta = result.x[0]
+
 optimized_energy = result.fun
 
 optimized_state = ansatz_state(
     best_theta
 )
+
 
 print("\n" + "=" * 60)
 print("VQE RESULT")
@@ -421,21 +423,16 @@ print(
 )
 
 print(
-    f"Exact ground energy  = "
-    f"{exact_ground_energy:.10f}"
+    f"Exact one-particle energy = "
+    f"{one_particle_ground_energy:.10f}"
 )
-
-
-# ============================================================
-# 14. OPTIMIZED STATE
-# ============================================================
 
 print("\nOptimized state:")
 print(optimized_state)
 
 
 # ============================================================
-# 15. EXPECTATION VALUES OF IMPORTANT OPERATORS
+# 16. EXPECTATION VALUES
 # ============================================================
 
 z0_expectation = expectation(
@@ -468,28 +465,34 @@ particle_number_expectation = expectation(
     N
 )
 
+
 print("\n" + "=" * 60)
 print("OPTIMIZED EXPECTATION VALUES")
 print("=" * 60)
 
 print(
-    f"\n<Z0>   = {z0_expectation:.10f}"
+    f"\n<Z0>   = "
+    f"{z0_expectation:.10f}"
 )
 
 print(
-    f"<Z1>   = {z1_expectation:.10f}"
+    f"<Z1>   = "
+    f"{z1_expectation:.10f}"
 )
 
 print(
-    f"<Z0Z1> = {zz_expectation:.10f}"
+    f"<Z0Z1> = "
+    f"{zz_expectation:.10f}"
 )
 
 print(
-    f"<X0X1> = {xx_expectation:.10f}"
+    f"<X0X1> = "
+    f"{xx_expectation:.10f}"
 )
 
 print(
-    f"<Y0Y1> = {yy_expectation:.10f}"
+    f"<Y0Y1> = "
+    f"{yy_expectation:.10f}"
 )
 
 print(
@@ -499,17 +502,7 @@ print(
 
 
 # ============================================================
-# 16. ENERGY RECONSTRUCTION FROM PAULI EXPECTATIONS
-#
-# This is the form VQE actually uses:
-#
-# E =
-# cI <I>
-# + cZ0 <Z0>
-# + cZ1 <Z1>
-# + cZZ <Z0Z1>
-# + cXX <X0X1>
-# + cYY <Y0Y1>
+# 17. PAULI ENERGY RECONSTRUCTION
 # ============================================================
 
 reconstructed_energy = (
@@ -520,6 +513,7 @@ reconstructed_energy = (
     + xx_coeff * xx_expectation
     + yy_coeff * yy_expectation
 )
+
 
 print("\n" + "=" * 60)
 print("PAULI ENERGY RECONSTRUCTION")
@@ -542,26 +536,194 @@ print(
 
 
 # ============================================================
-# 17. VQE ERROR
+# 18. VQE ERROR
+#
+# IMPORTANT:
+# Compare against the ground energy of the SAME sector.
 # ============================================================
 
 vqe_error = abs(
     optimized_energy
-    - exact_ground_energy
+    - one_particle_ground_energy
 )
+
 
 print("\n" + "=" * 60)
 print("VQE ACCURACY")
 print("=" * 60)
 
 print(
-    f"\nVQE error = "
+    f"\nOne-particle exact energy = "
+    f"{one_particle_ground_energy:.10f}"
+)
+
+print(
+    f"VQE energy               = "
+    f"{optimized_energy:.10f}"
+)
+
+print(
+    f"VQE error                = "
     f"{vqe_error:.10e}"
 )
 
 
 # ============================================================
-# 18. FINAL SUMMARY
+# 19. Z-BASIS SHOT MEASUREMENT
+#
+# Measuring in the computational basis gives:
+#
+# 00 -> Z0=+1, Z1=+1, Z0Z1=+1
+# 01 -> Z0=+1, Z1=-1, Z0Z1=-1
+# 10 -> Z0=-1, Z1=+1, Z0Z1=-1
+# 11 -> Z0=-1, Z1=-1, Z0Z1=+1
+# ============================================================
+
+def measure_z_basis(state, shots=2048, seed=None):
+
+    rng = np.random.default_rng(seed)
+
+    probabilities = np.abs(state) ** 2
+
+    probabilities = (
+        probabilities
+        / np.sum(probabilities)
+    )
+
+    basis_labels = [
+        "00",
+        "01",
+        "10",
+        "11"
+    ]
+
+    samples = rng.choice(
+        basis_labels,
+        size=shots,
+        p=probabilities
+    )
+
+    counts = {
+        "00": int(np.sum(samples == "00")),
+        "01": int(np.sum(samples == "01")),
+        "10": int(np.sum(samples == "10")),
+        "11": int(np.sum(samples == "11"))
+    }
+
+    return counts
+
+
+# ============================================================
+# 20. EXPECTATIONS FROM Z COUNTS
+# ============================================================
+
+def z_expectations_from_counts(counts):
+
+    shots = sum(counts.values())
+
+    n00 = counts.get("00", 0)
+    n01 = counts.get("01", 0)
+    n10 = counts.get("10", 0)
+    n11 = counts.get("11", 0)
+
+    z0 = (
+        n00
+        + n01
+        - n10
+        - n11
+    ) / shots
+
+    z1 = (
+        n00
+        - n01
+        + n10
+        - n11
+    ) / shots
+
+    zz = (
+        n00
+        - n01
+        - n10
+        + n11
+    ) / shots
+
+    return z0, z1, zz
+
+
+# ============================================================
+# 21. TEST Z-BASIS MEASUREMENT
+# ============================================================
+
+print("\n" + "=" * 60)
+print("Z-BASIS SHOT MEASUREMENT")
+print("=" * 60)
+
+shots = 2048
+
+z_counts = measure_z_basis(
+    optimized_state,
+    shots=shots,
+    seed=42
+)
+
+z0_measured, z1_measured, zz_measured = (
+    z_expectations_from_counts(
+        z_counts
+    )
+)
+
+
+print("\nMeasurement shots:")
+print(shots)
+
+print("\nZ-basis counts:")
+print(z_counts)
+
+print("\nMeasured expectation values:")
+
+print(
+    f"<Z0>   = "
+    f"{z0_measured:.6f}"
+)
+
+print(
+    f"<Z1>   = "
+    f"{z1_measured:.6f}"
+)
+
+print(
+    f"<Z0Z1> = "
+    f"{zz_measured:.6f}"
+)
+
+
+# ============================================================
+# 22. IDEAL VS MEASURED
+# ============================================================
+
+print("\nIdeal vs measured:")
+
+print(
+    f"<Z0>   : "
+    f"ideal={z0_expectation:.6f}, "
+    f"measured={z0_measured:.6f}"
+)
+
+print(
+    f"<Z1>   : "
+    f"ideal={z1_expectation:.6f}, "
+    f"measured={z1_measured:.6f}"
+)
+
+print(
+    f"<Z0Z1> : "
+    f"ideal={zz_expectation:.6f}, "
+    f"measured={zz_measured:.6f}"
+)
+
+
+# ============================================================
+# 23. FINAL SUMMARY
 # ============================================================
 
 print("\n" + "=" * 60)
@@ -575,11 +737,11 @@ Jordan-Wigner transformation
         ↓
 Pauli Hamiltonian
         ↓
-Choose one-particle sector
+Select one-particle sector
         ↓
-Prepare initial state |01>
+Prepare |01>
         ↓
-Apply parameterized ansatz
+Parameterized superposition
         ↓
 Calculate <H>
         ↓
@@ -587,30 +749,62 @@ COBYLA changes theta
         ↓
 Energy decreases
         ↓
-Best theta found
+Find one-particle ground state
         ↓
-Compare with exact ground energy
+Measure in Z basis
+        ↓
+Estimate expectation values
 """)
 
 print(
-    f"Exact ground energy : "
-    f"{exact_ground_energy:.10f}"
+    f"Full Hamiltonian ground : "
+    f"{full_ground_energy:.10f}"
 )
 
 print(
-    f"VQE energy          : "
+    f"One-particle exact       : "
+    f"{one_particle_ground_energy:.10f}"
+)
+
+print(
+    f"VQE energy               : "
     f"{optimized_energy:.10f}"
 )
 
 print(
-    f"Absolute error      : "
+    f"VQE error                : "
     f"{vqe_error:.10e}"
 )
 
+print(
+    f"Measured <Z0>            : "
+    f"{z0_measured:.6f}"
+)
+
+print(
+    f"Measured <Z1>            : "
+    f"{z1_measured:.6f}"
+)
+
+print(
+    f"Measured <Z0Z1>          : "
+    f"{zz_measured:.6f}"
+)
+
+
 if vqe_error < 1e-6:
-    print("\nSUCCESS: VQE reached the exact ground-state energy.")
+
+    print(
+        "\nSUCCESS: "
+        "VQE reached the one-particle ground-state energy."
+    )
+
 else:
-    print("\nVQE completed, but the error is above the target.")
+
+    print(
+        "\nVQE completed, "
+        "but the error is above the target."
+    )
 
 
 print("\nDone.")
