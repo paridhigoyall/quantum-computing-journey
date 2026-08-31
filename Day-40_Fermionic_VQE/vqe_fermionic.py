@@ -1,14 +1,16 @@
 import numpy as np
+from scipy.optimize import minimize
 
 np.set_printoptions(precision=6, suppress=True)
 
 # ============================================================
-# DAY 42 - SHOT-BASED FERMIONIC VQE
+# DAY 43 - SHOT BUDGET AND VQE ACCURACY
 # ============================================================
 
 print("=" * 60)
-print("DAY 42 - SHOT-BASED FERMIONIC VQE")
+print("DAY 43 - SHOT BUDGET AND VQE ACCURACY")
 print("=" * 60)
+
 
 # ============================================================
 # PHYSICAL PARAMETERS
@@ -19,14 +21,17 @@ eps1 = 1.1
 t = -0.4
 U = 0.8
 
-SHOTS = 2048
+SHOT_BUDGETS = [512, 2048, 8192]
 
 print("\nPhysical parameters:")
 print(f"eps0 = {eps0}")
 print(f"eps1 = {eps1}")
 print(f"t    = {t}")
 print(f"U    = {U}")
-print(f"Shots per Pauli measurement = {SHOTS}")
+
+print("\nShot budgets:")
+for shots in SHOT_BUDGETS:
+    print(f"  {shots} shots")
 
 
 # ============================================================
@@ -84,9 +89,10 @@ H = (
 )
 
 print("\n" + "=" * 60)
-print("PAULI HAMILTONIAN")
+print("JORDAN-WIGNER PAULI HAMILTONIAN")
 print("=" * 60)
 
+print("\nPauli coefficients:")
 print(f"I      : {cI:+.6f}")
 print(f"Z0     : {cZ0:+.6f}")
 print(f"Z1     : {cZ1:+.6f}")
@@ -104,9 +110,9 @@ H_one = np.array([
     [t, eps0]
 ], dtype=complex)
 
-one_eigenvalues, one_eigenvectors = np.linalg.eigh(H_one)
+eigenvalues, eigenvectors = np.linalg.eigh(H_one)
 
-exact_energy = one_eigenvalues[0]
+exact_energy = float(eigenvalues[0])
 
 print("\n" + "=" * 60)
 print("EXACT ONE-PARTICLE SOLUTION")
@@ -116,9 +122,10 @@ print("\nOne-particle Hamiltonian:")
 print(H_one)
 
 print("\nEigenvalues:")
-print(one_eigenvalues)
+print(eigenvalues)
 
-print(f"\nExact one-particle ground energy = {exact_energy:.10f}")
+print(f"\nExact one-particle ground energy = "
+      f"{exact_energy:.10f}")
 
 
 # ============================================================
@@ -129,11 +136,13 @@ def prepare_state(theta):
     """
     One-particle ansatz:
 
-        |psi(theta)> =
-            cos(theta/2)|01>
-          + sin(theta/2)|10>
+        |psi(theta)>
+        =
+        cos(theta/2)|01>
+        +
+        sin(theta/2)|10>
 
-    This automatically keeps N = 1.
+    Therefore the state always remains in N = 1 sector.
     """
 
     state = np.array([
@@ -147,15 +156,21 @@ def prepare_state(theta):
 
 
 # ============================================================
-# IDEAL EXPECTATION VALUE
+# EXPECTATION VALUE
 # ============================================================
 
 def expectation(state, operator):
-    return float(np.real(np.vdot(state, operator @ state)))
+    return float(
+        np.real(
+            np.vdot(state, operator @ state)
+        )
+    )
 
 
 def ideal_energy(theta):
+
     state = prepare_state(theta)
+
     return expectation(state, H)
 
 
@@ -172,49 +187,50 @@ S_dagger = np.array([
 
 
 def rotate_for_basis(state, basis):
-    """
-    Convert X/Y measurements into Z measurements.
-
-    Z:
-        no rotation
-
-    X:
-        H
-
-    Y:
-        S-dagger followed by H
-    """
 
     if basis == "Z":
         return state
 
     if basis == "X":
-        rotation = kron(H_gate, H_gate)
+
+        rotation = kron(
+            H_gate,
+            H_gate
+        )
+
         return rotation @ state
 
     if basis == "Y":
+
         single_rotation = H_gate @ S_dagger
-        rotation = kron(single_rotation, single_rotation)
+
+        rotation = kron(
+            single_rotation,
+            single_rotation
+        )
+
         return rotation @ state
 
     raise ValueError("Unknown measurement basis")
 
 
 # ============================================================
-# SHOT SAMPLING
+# SHOT MEASUREMENT
 # ============================================================
 
-rng = np.random.default_rng()
+def measure_counts(state, basis, shots, rng):
 
-
-def measure_counts(state, basis, shots=SHOTS):
-
-    rotated_state = rotate_for_basis(state, basis)
+    rotated_state = rotate_for_basis(
+        state,
+        basis
+    )
 
     probabilities = np.abs(rotated_state) ** 2
-    probabilities = probabilities / np.sum(probabilities)
 
-    outcomes = ["00", "01", "10", "11"]
+    probabilities = (
+        probabilities /
+        np.sum(probabilities)
+    )
 
     samples = rng.choice(
         4,
@@ -222,25 +238,26 @@ def measure_counts(state, basis, shots=SHOTS):
         p=probabilities
     )
 
-    counts = {
+    return {
         "00": int(np.sum(samples == 0)),
         "01": int(np.sum(samples == 1)),
         "10": int(np.sum(samples == 2)),
         "11": int(np.sum(samples == 3))
     }
 
-    return counts
-
 
 # ============================================================
-# EXPECTATION FROM COUNTS
+# EXPECTATION FROM MEASUREMENT COUNTS
 # ============================================================
 
-def expectation_from_counts(counts, observable):
+def expectation_from_counts(
+    counts,
+    observable
+):
 
     total = sum(counts.values())
 
-    expectation_value = 0.0
+    value = 0.0
 
     for bitstring, count in counts.items():
 
@@ -251,44 +268,58 @@ def expectation_from_counts(counts, observable):
         z1 = 1 if b1 == 0 else -1
 
         if observable == "Z0":
+
             eigenvalue = z0
 
         elif observable == "Z1":
+
             eigenvalue = z1
 
         elif observable == "Z0Z1":
+
             eigenvalue = z0 * z1
 
         elif observable == "X0X1":
+
             eigenvalue = z0 * z1
 
         elif observable == "Y0Y1":
+
             eigenvalue = z0 * z1
 
         else:
-            raise ValueError("Unknown observable")
 
-        expectation_value += eigenvalue * count
+            raise ValueError(
+                "Unknown observable"
+            )
 
-    return expectation_value / total
+        value += eigenvalue * count
+
+    return value / total
 
 
 # ============================================================
 # SHOT-BASED ENERGY
 # ============================================================
 
-def measured_energy(theta, verbose=False):
+def measured_energy(
+    theta,
+    shots,
+    rng,
+    return_details=False
+):
 
     state = prepare_state(theta)
 
     # --------------------------------------------------------
-    # Z measurement
+    # Z BASIS
     # --------------------------------------------------------
 
     z_counts = measure_counts(
         state,
         "Z",
-        SHOTS
+        shots,
+        rng
     )
 
     z0 = expectation_from_counts(
@@ -307,13 +338,14 @@ def measured_energy(theta, verbose=False):
     )
 
     # --------------------------------------------------------
-    # X measurement
+    # X BASIS
     # --------------------------------------------------------
 
     x_counts = measure_counts(
         state,
         "X",
-        SHOTS
+        shots,
+        rng
     )
 
     xx = expectation_from_counts(
@@ -322,13 +354,14 @@ def measured_energy(theta, verbose=False):
     )
 
     # --------------------------------------------------------
-    # Y measurement
+    # Y BASIS
     # --------------------------------------------------------
 
     y_counts = measure_counts(
         state,
         "Y",
-        SHOTS
+        shots,
+        rng
     )
 
     yy = expectation_from_counts(
@@ -337,7 +370,7 @@ def measured_energy(theta, verbose=False):
     )
 
     # --------------------------------------------------------
-    # Hamiltonian reconstruction
+    # ENERGY RECONSTRUCTION
     # --------------------------------------------------------
 
     energy = (
@@ -349,19 +382,18 @@ def measured_energy(theta, verbose=False):
         + cYY * yy
     )
 
-    if verbose:
+    if return_details:
 
-        print("\nMeasurement details:")
-        print(f"Z counts = {z_counts}")
-        print(f"X counts = {x_counts}")
-        print(f"Y counts = {y_counts}")
-
-        print("\nMeasured expectation values:")
-        print(f"<Z0>   = {z0:.6f}")
-        print(f"<Z1>   = {z1:.6f}")
-        print(f"<Z0Z1> = {zz:.6f}")
-        print(f"<X0X1> = {xx:.6f}")
-        print(f"<Y0Y1> = {yy:.6f}")
+        return energy, {
+            "Z": z_counts,
+            "X": x_counts,
+            "Y": y_counts,
+            "Z0": z0,
+            "Z1": z1,
+            "Z0Z1": zz,
+            "X0X1": xx,
+            "Y0Y1": yy
+        }
 
     return energy
 
@@ -378,7 +410,9 @@ print("=" * 60)
 
 print(f"\nInitial theta = {initial_theta:.6f}")
 
-initial_state = prepare_state(initial_theta)
+initial_state = prepare_state(
+    initial_theta
+)
 
 print("\nInitial state:")
 print(initial_state)
@@ -390,116 +424,220 @@ print(
 
 
 # ============================================================
-# SHOT-BASED OPTIMIZATION
+# RUN VQE FOR DIFFERENT SHOT BUDGETS
 # ============================================================
 
-print("\n" + "=" * 60)
-print("SHOT-BASED VQE OPTIMIZATION")
-print("=" * 60)
-
-print("""
-Important:
-
-The optimizer does NOT receive the ideal energy.
-
-Instead:
-
-theta
-  ↓
-prepare state
-  ↓
-measure Z
-measure X
-measure Y
-  ↓
-estimate expectation values
-  ↓
-reconstruct energy
-  ↓
-COBYLA receives measured energy
-""")
-
-# We use scipy's COBYLA exactly as in our previous VQE work.
-from scipy.optimize import minimize
+results = []
 
 
-history = []
+for shots in SHOT_BUDGETS:
 
+    print("\n")
+    print("=" * 60)
+    print(f"VQE WITH {shots} SHOTS")
+    print("=" * 60)
 
-def objective(x):
+    # --------------------------------------------------------
+    # New RNG for each experiment
+    # --------------------------------------------------------
 
-    theta = float(x[0])
-
-    energy = measured_energy(theta)
-
-    history.append((theta, energy))
-
-    print(
-        f"Step {len(history):03d}: "
-        f"theta={theta: .8f} | "
-        f"Measured E={energy: .10f}"
+    rng = np.random.default_rng(
+        1000 + shots
     )
 
-    return energy
+    history = []
 
+    def objective(x):
 
-result = minimize(
-    objective,
-    x0=np.array([initial_theta]),
-    method="COBYLA",
-    options={
-        "maxiter": 60,
-        "rhobeg": 0.5,
-        "tol": 1e-5
-    }
-)
+        theta = float(x[0])
+
+        energy = measured_energy(
+            theta,
+            shots,
+            rng
+        )
+
+        history.append(
+            (theta, energy)
+        )
+
+        print(
+            f"Step {len(history):03d}: "
+            f"theta={theta: .8f} | "
+            f"Measured E={energy: .10f}"
+        )
+
+        return energy
+
+    # --------------------------------------------------------
+    # COBYLA
+    # --------------------------------------------------------
+
+    result = minimize(
+        objective,
+        x0=np.array([initial_theta]),
+        method="COBYLA",
+        options={
+            "maxiter": 60,
+            "rhobeg": 0.5,
+            "tol": 1e-5
+        }
+    )
+
+    best_theta = float(
+        result.x[0]
+    )
+
+    state = prepare_state(
+        best_theta
+    )
+
+    ideal_vqe_energy = ideal_energy(
+        best_theta
+    )
+
+    final_measured_energy, details = measured_energy(
+        best_theta,
+        shots,
+        rng,
+        return_details=True
+    )
+
+    ideal_error = abs(
+        ideal_vqe_energy -
+        exact_energy
+    )
+
+    measurement_error = abs(
+        final_measured_energy -
+        ideal_vqe_energy
+    )
+
+    total_error = abs(
+        final_measured_energy -
+        exact_energy
+    )
+
+    results.append({
+        "shots": shots,
+        "theta": best_theta,
+        "ideal_energy": ideal_vqe_energy,
+        "measured_energy": final_measured_energy,
+        "ideal_error": ideal_error,
+        "measurement_error": measurement_error,
+        "total_error": total_error
+    })
+
+    # --------------------------------------------------------
+    # RESULT
+    # --------------------------------------------------------
+
+    print("\n" + "-" * 60)
+    print(f"RESULT FOR {shots} SHOTS")
+    print("-" * 60)
+
+    print(
+        f"Best theta              = "
+        f"{best_theta:.10f}"
+    )
+
+    print(
+        f"Ideal VQE energy        = "
+        f"{ideal_vqe_energy:.10f}"
+    )
+
+    print(
+        f"Measured VQE energy     = "
+        f"{final_measured_energy:.10f}"
+    )
+
+    print(
+        f"Exact energy            = "
+        f"{exact_energy:.10f}"
+    )
+
+    print(
+        f"Ideal VQE error         = "
+        f"{ideal_error:.10e}"
+    )
+
+    print(
+        f"Measurement error       = "
+        f"{measurement_error:.10e}"
+    )
+
+    print(
+        f"Total measured error    = "
+        f"{total_error:.10e}"
+    )
 
 
 # ============================================================
-# OPTIMIZATION RESULT
+# COMPARISON TABLE
 # ============================================================
-
-best_theta = float(result.x[0])
-
-best_state = prepare_state(best_theta)
-
-best_ideal_energy = ideal_energy(best_theta)
-
-# Perform one fresh final measurement
-final_measured_energy = measured_energy(
-    best_theta,
-    verbose=True
-)
-
 
 print("\n" + "=" * 60)
-print("VQE RESULT")
+print("SHOT BUDGET COMPARISON")
 print("=" * 60)
 
-print(f"\nBest theta = {best_theta:.10f}")
+print(
+    "\n"
+    f"{'Shots':>8} "
+    f"{'Theta':>14} "
+    f"{'Ideal E':>14} "
+    f"{'Measured E':>14} "
+    f"{'Total Error':>14}"
+)
 
-print(f"Ideal energy at best theta = "
-      f"{best_ideal_energy:.10f}")
+print("-" * 68)
 
-print(f"Final measured energy = "
-      f"{final_measured_energy:.10f}")
+for item in results:
 
-print(f"Exact one-particle energy = "
-      f"{exact_energy:.10f}")
-
-print("\nOptimized state:")
-print(best_state)
+    print(
+        f"{item['shots']:>8} "
+        f"{item['theta']:>14.8f} "
+        f"{item['ideal_energy']:>14.8f} "
+        f"{item['measured_energy']:>14.8f} "
+        f"{item['total_error']:>14.8f}"
+    )
 
 
 # ============================================================
-# FINAL IDEAL EXPECTATION VALUES
+# EXPECTATION VALUES FOR HIGHEST SHOT BUDGET
 # ============================================================
 
-ideal_z0 = expectation(best_state, Z0)
-ideal_z1 = expectation(best_state, Z1)
-ideal_zz = expectation(best_state, Z0Z1)
-ideal_xx = expectation(best_state, X0X1)
-ideal_yy = expectation(best_state, Y0Y1)
+best_result = results[-1]
+
+best_theta = best_result["theta"]
+
+best_state = prepare_state(
+    best_theta
+)
+
+ideal_z0 = expectation(
+    best_state,
+    Z0
+)
+
+ideal_z1 = expectation(
+    best_state,
+    Z1
+)
+
+ideal_zz = expectation(
+    best_state,
+    Z0Z1
+)
+
+ideal_xx = expectation(
+    best_state,
+    X0X1
+)
+
+ideal_yy = expectation(
+    best_state,
+    Y0Y1
+)
 
 print("\n" + "=" * 60)
 print("FINAL IDEAL EXPECTATION VALUES")
@@ -513,81 +651,31 @@ print(f"<Y0Y1> = {ideal_yy:.10f}")
 
 
 # ============================================================
-# FINAL ACCURACY
-# ============================================================
-
-ideal_error = abs(
-    best_ideal_energy - exact_energy
-)
-
-measurement_error = abs(
-    final_measured_energy - best_ideal_energy
-)
-
-total_error = abs(
-    final_measured_energy - exact_energy
-)
-
-
-print("\n" + "=" * 60)
-print("FINAL ACCURACY")
-print("=" * 60)
-
-print(
-    f"\nExact energy       = "
-    f"{exact_energy:.10f}"
-)
-
-print(
-    f"Ideal VQE energy   = "
-    f"{best_ideal_energy:.10f}"
-)
-
-print(
-    f"Measured VQE energy = "
-    f"{final_measured_energy:.10f}"
-)
-
-print(
-    f"\nIdeal VQE error    = "
-    f"{ideal_error:.10e}"
-)
-
-print(
-    f"Measurement error  = "
-    f"{measurement_error:.10e}"
-)
-
-print(
-    f"Total error        = "
-    f"{total_error:.10e}"
-)
-
-
-# ============================================================
-# DAY 42 SUMMARY
+# FINAL INTERPRETATION
 # ============================================================
 
 print("\n" + "=" * 60)
-print("DAY 42 SUMMARY")
+print("DAY 43 SUMMARY")
 print("=" * 60)
 
 print("""
-Day 41:
-    Optimize using ideal state-vector energy.
+Today we changed only the measurement budget.
 
-Day 42:
-    Optimize using shot-based measured energy.
+The same VQE was run with:
+
+    512 shots
+        ↓
+    2048 shots
+        ↓
+    8192 shots
 
 Pipeline:
 
 theta
    ↓
-Parameterized quantum state
+Parameterized state
    ↓
-Z / X / Y basis measurements
-   ↓
-Finite measurement shots
+Finite-shot measurement
    ↓
 Expectation values
    ↓
@@ -598,19 +686,57 @@ COBYLA
 New theta
    ↓
 Repeat
+
+The important idea:
+
+More shots
+   ↓
+Better statistical estimate
+   ↓
+Less measurement noise
+   ↓
+More reliable VQE energy
 """)
 
-print(f"Exact energy          : {exact_energy:.10f}")
-print(f"Ideal optimized       : {best_ideal_energy:.10f}")
-print(f"Measured final energy : {final_measured_energy:.10f}")
 
-print(f"\nShots per measurement : {SHOTS}")
+print("\nExact one-particle energy:")
+print(
+    f"{exact_energy:.10f}"
+)
 
-if total_error < 0.05:
-    print("\nSUCCESS: Shot-based VQE reached an energy close to")
-    print("the exact one-particle ground-state energy.")
+print("\nResults:")
+
+for item in results:
+
+    print(
+        f"{item['shots']:5d} shots -> "
+        f"measured energy = "
+        f"{item['measured_energy']:.10f}, "
+        f"error = "
+        f"{item['total_error']:.10e}"
+    )
+
+
+# ============================================================
+# FINAL SUCCESS MESSAGE
+# ============================================================
+
+print("\n" + "=" * 60)
+
+if results[-1]["total_error"] < 0.02:
+
+    print(
+        "SUCCESS: Higher shot budget gives a "
+        "reliable VQE energy estimate."
+    )
+
 else:
-    print("\nShot noise is significant.")
-    print("Increasing the number of shots should improve accuracy.")
 
-print("\nDay 42 shot-based VQE complete.")
+    print(
+        "Measurement noise is still significant. "
+        "More shots may be required."
+    )
+
+print("=" * 60)
+
+print("\nDay 43 shot-budget experiment complete.")
