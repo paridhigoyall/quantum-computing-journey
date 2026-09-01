@@ -4,11 +4,11 @@ from scipy.optimize import minimize
 np.set_printoptions(precision=6, suppress=True)
 
 # ============================================================
-# DAY 43 - SHOT BUDGET AND VQE ACCURACY
+# DAY 44 - VQE WITH READOUT NOISE
 # ============================================================
 
 print("=" * 60)
-print("DAY 43 - SHOT BUDGET AND VQE ACCURACY")
+print("DAY 44 - VQE WITH READOUT NOISE")
 print("=" * 60)
 
 
@@ -21,7 +21,10 @@ eps1 = 1.1
 t = -0.4
 U = 0.8
 
-SHOT_BUDGETS = [512, 2048, 8192]
+SHOTS = 2048
+
+# Readout error probabilities
+NOISE_LEVELS = [0.00, 0.02, 0.05]
 
 print("\nPhysical parameters:")
 print(f"eps0 = {eps0}")
@@ -29,9 +32,11 @@ print(f"eps1 = {eps1}")
 print(f"t    = {t}")
 print(f"U    = {U}")
 
-print("\nShot budgets:")
-for shots in SHOT_BUDGETS:
-    print(f"  {shots} shots")
+print(f"\nShots per measurement = {SHOTS}")
+
+print("\nReadout noise levels:")
+for noise in NOISE_LEVELS:
+    print(f"  {noise * 100:.0f}% readout error")
 
 
 # ============================================================
@@ -142,7 +147,7 @@ def prepare_state(theta):
         +
         sin(theta/2)|10>
 
-    Therefore the state always remains in N = 1 sector.
+    The state therefore remains in the N = 1 sector.
     """
 
     state = np.array([
@@ -156,13 +161,17 @@ def prepare_state(theta):
 
 
 # ============================================================
-# EXPECTATION VALUE
+# IDEAL EXPECTATION VALUE
 # ============================================================
 
 def expectation(state, operator):
+
     return float(
         np.real(
-            np.vdot(state, operator @ state)
+            np.vdot(
+                state,
+                operator @ state
+            )
         )
     )
 
@@ -171,7 +180,10 @@ def ideal_energy(theta):
 
     state = prepare_state(theta)
 
-    return expectation(state, H)
+    return expectation(
+        state,
+        H
+    )
 
 
 # ============================================================
@@ -215,21 +227,27 @@ def rotate_for_basis(state, basis):
 
 
 # ============================================================
-# SHOT MEASUREMENT
+# IDEAL SHOT GENERATION
 # ============================================================
 
-def measure_counts(state, basis, shots, rng):
+def generate_ideal_samples(
+    state,
+    basis,
+    shots,
+    rng
+):
 
     rotated_state = rotate_for_basis(
         state,
         basis
     )
 
-    probabilities = np.abs(rotated_state) ** 2
+    probabilities = np.abs(
+        rotated_state
+    ) ** 2
 
-    probabilities = (
-        probabilities /
-        np.sum(probabilities)
+    probabilities /= np.sum(
+        probabilities
     )
 
     samples = rng.choice(
@@ -237,6 +255,74 @@ def measure_counts(state, basis, shots, rng):
         size=shots,
         p=probabilities
     )
+
+    return samples
+
+
+# ============================================================
+# READOUT NOISE
+# ============================================================
+
+def apply_readout_noise(
+    samples,
+    noise_probability,
+    rng
+):
+    """
+    Simulate measurement/readout errors.
+
+    Each measured qubit has an independent probability
+    of having its classical bit flipped.
+
+    Example:
+
+        actual 0
+           ↓
+        2% error
+           ↓
+        reported 1
+
+    and:
+
+        actual 1
+           ↓
+        2% error
+           ↓
+        reported 0
+    """
+
+    noisy_samples = samples.copy()
+
+    if noise_probability <= 0:
+        return noisy_samples
+
+    for i in range(len(noisy_samples)):
+
+        # Convert integer outcome to two bits
+        b0 = (noisy_samples[i] >> 1) & 1
+        b1 = noisy_samples[i] & 1
+
+        # Qubit 0 readout error
+        if rng.random() < noise_probability:
+            b0 = 1 - b0
+
+        # Qubit 1 readout error
+        if rng.random() < noise_probability:
+            b1 = 1 - b1
+
+        # Convert bits back to integer
+        noisy_samples[i] = (
+            (b0 << 1) | b1
+        )
+
+    return noisy_samples
+
+
+# ============================================================
+# COUNTS
+# ============================================================
+
+def samples_to_counts(samples):
 
     return {
         "00": int(np.sum(samples == 0)),
@@ -247,7 +333,7 @@ def measure_counts(state, basis, shots, rng):
 
 
 # ============================================================
-# EXPECTATION FROM MEASUREMENT COUNTS
+# EXPECTATION FROM COUNTS
 # ============================================================
 
 def expectation_from_counts(
@@ -255,7 +341,9 @@ def expectation_from_counts(
     observable
 ):
 
-    total = sum(counts.values())
+    total = sum(
+        counts.values()
+    )
 
     value = 0.0
 
@@ -293,9 +381,41 @@ def expectation_from_counts(
                 "Unknown observable"
             )
 
-        value += eigenvalue * count
+        value += (
+            eigenvalue * count
+        )
 
     return value / total
+
+
+# ============================================================
+# NOISY MEASUREMENT
+# ============================================================
+
+def measure_counts(
+    state,
+    basis,
+    shots,
+    noise_probability,
+    rng
+):
+
+    ideal_samples = generate_ideal_samples(
+        state,
+        basis,
+        shots,
+        rng
+    )
+
+    noisy_samples = apply_readout_noise(
+        ideal_samples,
+        noise_probability,
+        rng
+    )
+
+    return samples_to_counts(
+        noisy_samples
+    )
 
 
 # ============================================================
@@ -305,6 +425,7 @@ def expectation_from_counts(
 def measured_energy(
     theta,
     shots,
+    noise_probability,
     rng,
     return_details=False
 ):
@@ -319,6 +440,7 @@ def measured_energy(
         state,
         "Z",
         shots,
+        noise_probability,
         rng
     )
 
@@ -345,6 +467,7 @@ def measured_energy(
         state,
         "X",
         shots,
+        noise_probability,
         rng
     )
 
@@ -361,6 +484,7 @@ def measured_energy(
         state,
         "Y",
         shots,
+        noise_probability,
         rng
     )
 
@@ -370,7 +494,7 @@ def measured_energy(
     )
 
     # --------------------------------------------------------
-    # ENERGY RECONSTRUCTION
+    # RECONSTRUCT ENERGY
     # --------------------------------------------------------
 
     energy = (
@@ -408,7 +532,10 @@ print("\n" + "=" * 60)
 print("INITIAL STATE")
 print("=" * 60)
 
-print(f"\nInitial theta = {initial_theta:.6f}")
+print(
+    f"\nInitial theta = "
+    f"{initial_theta:.6f}"
+)
 
 initial_state = prepare_state(
     initial_theta
@@ -424,25 +551,25 @@ print(
 
 
 # ============================================================
-# RUN VQE FOR DIFFERENT SHOT BUDGETS
+# VQE FOR EACH NOISE LEVEL
 # ============================================================
 
 results = []
 
 
-for shots in SHOT_BUDGETS:
+for noise in NOISE_LEVELS:
 
     print("\n")
     print("=" * 60)
-    print(f"VQE WITH {shots} SHOTS")
+    print(
+        f"VQE WITH "
+        f"{noise * 100:.0f}% READOUT NOISE"
+    )
     print("=" * 60)
 
-    # --------------------------------------------------------
-    # New RNG for each experiment
-    # --------------------------------------------------------
-
+    # Separate random generator for each experiment
     rng = np.random.default_rng(
-        1000 + shots
+        44000 + int(noise * 100)
     )
 
     history = []
@@ -453,7 +580,8 @@ for shots in SHOT_BUDGETS:
 
         energy = measured_energy(
             theta,
-            shots,
+            SHOTS,
+            noise,
             rng
         )
 
@@ -488,7 +616,7 @@ for shots in SHOT_BUDGETS:
         result.x[0]
     )
 
-    state = prepare_state(
+    best_state = prepare_state(
         best_theta
     )
 
@@ -498,7 +626,8 @@ for shots in SHOT_BUDGETS:
 
     final_measured_energy, details = measured_energy(
         best_theta,
-        shots,
+        SHOTS,
+        noise,
         rng,
         return_details=True
     )
@@ -519,7 +648,7 @@ for shots in SHOT_BUDGETS:
     )
 
     results.append({
-        "shots": shots,
+        "noise": noise,
         "theta": best_theta,
         "ideal_energy": ideal_vqe_energy,
         "measured_energy": final_measured_energy,
@@ -529,60 +658,63 @@ for shots in SHOT_BUDGETS:
     })
 
     # --------------------------------------------------------
-    # RESULT
+    # FINAL DETAILS
     # --------------------------------------------------------
 
     print("\n" + "-" * 60)
-    print(f"RESULT FOR {shots} SHOTS")
+    print(
+        f"RESULT FOR "
+        f"{noise * 100:.0f}% READOUT NOISE"
+    )
     print("-" * 60)
 
     print(
-        f"Best theta              = "
+        f"Best theta           = "
         f"{best_theta:.10f}"
     )
 
     print(
-        f"Ideal VQE energy        = "
+        f"Ideal VQE energy     = "
         f"{ideal_vqe_energy:.10f}"
     )
 
     print(
-        f"Measured VQE energy     = "
+        f"Measured VQE energy  = "
         f"{final_measured_energy:.10f}"
     )
 
     print(
-        f"Exact energy            = "
+        f"Exact energy         = "
         f"{exact_energy:.10f}"
     )
 
     print(
-        f"Ideal VQE error         = "
+        f"Ideal VQE error      = "
         f"{ideal_error:.10e}"
     )
 
     print(
-        f"Measurement error       = "
+        f"Measurement error    = "
         f"{measurement_error:.10e}"
     )
 
     print(
-        f"Total measured error    = "
+        f"Total measured error = "
         f"{total_error:.10e}"
     )
 
 
 # ============================================================
-# COMPARISON TABLE
+# NOISE COMPARISON
 # ============================================================
 
 print("\n" + "=" * 60)
-print("SHOT BUDGET COMPARISON")
+print("READOUT NOISE COMPARISON")
 print("=" * 60)
 
 print(
     "\n"
-    f"{'Shots':>8} "
+    f"{'Noise':>8} "
     f"{'Theta':>14} "
     f"{'Ideal E':>14} "
     f"{'Measured E':>14} "
@@ -594,7 +726,7 @@ print("-" * 68)
 for item in results:
 
     print(
-        f"{item['shots']:>8} "
+        f"{item['noise'] * 100:>7.0f}% "
         f"{item['theta']:>14.8f} "
         f"{item['ideal_energy']:>14.8f} "
         f"{item['measured_energy']:>14.8f} "
@@ -603,140 +735,125 @@ for item in results:
 
 
 # ============================================================
-# EXPECTATION VALUES FOR HIGHEST SHOT BUDGET
+# EXPECTATION VALUES FOR 0% NOISE
 # ============================================================
 
-best_result = results[-1]
+zero_noise_result = results[0]
 
-best_theta = best_result["theta"]
-
-best_state = prepare_state(
-    best_theta
+zero_noise_theta = (
+    zero_noise_result["theta"]
 )
 
-ideal_z0 = expectation(
-    best_state,
-    Z0
-)
-
-ideal_z1 = expectation(
-    best_state,
-    Z1
-)
-
-ideal_zz = expectation(
-    best_state,
-    Z0Z1
-)
-
-ideal_xx = expectation(
-    best_state,
-    X0X1
-)
-
-ideal_yy = expectation(
-    best_state,
-    Y0Y1
+zero_noise_state = prepare_state(
+    zero_noise_theta
 )
 
 print("\n" + "=" * 60)
-print("FINAL IDEAL EXPECTATION VALUES")
+print("IDEAL EXPECTATION VALUES")
 print("=" * 60)
 
-print(f"\n<Z0>   = {ideal_z0:.10f}")
-print(f"<Z1>   = {ideal_z1:.10f}")
-print(f"<Z0Z1> = {ideal_zz:.10f}")
-print(f"<X0X1> = {ideal_xx:.10f}")
-print(f"<Y0Y1> = {ideal_yy:.10f}")
+print(
+    f"\n<Z0>   = "
+    f"{expectation(zero_noise_state, Z0):.10f}"
+)
+
+print(
+    f"<Z1>   = "
+    f"{expectation(zero_noise_state, Z1):.10f}"
+)
+
+print(
+    f"<Z0Z1> = "
+    f"{expectation(zero_noise_state, Z0Z1):.10f}"
+)
+
+print(
+    f"<X0X1> = "
+    f"{expectation(zero_noise_state, X0X1):.10f}"
+)
+
+print(
+    f"<Y0Y1> = "
+    f"{expectation(zero_noise_state, Y0Y1):.10f}"
+)
 
 
 # ============================================================
-# FINAL INTERPRETATION
+# DAY 44 SUMMARY
 # ============================================================
 
 print("\n" + "=" * 60)
-print("DAY 43 SUMMARY")
+print("DAY 44 SUMMARY")
 print("=" * 60)
 
 print("""
-Today we changed only the measurement budget.
+Day 43:
+    Studied finite-shot measurement noise.
 
-The same VQE was run with:
-
-    512 shots
-        ↓
-    2048 shots
-        ↓
-    8192 shots
+Day 44:
+    Added readout noise to the measurement process.
 
 Pipeline:
 
-theta
-   ↓
 Parameterized state
-   ↓
-Finite-shot measurement
-   ↓
-Expectation values
-   ↓
+        ↓
+Quantum measurement
+        ↓
+Readout error
+        ↓
+Measured bitstring
+        ↓
+Expectation value
+        ↓
 Hamiltonian energy
-   ↓
+        ↓
 COBYLA
-   ↓
+        ↓
 New theta
-   ↓
+        ↓
 Repeat
 
-The important idea:
+Noise levels tested:
 
-More shots
-   ↓
-Better statistical estimate
-   ↓
-Less measurement noise
-   ↓
-More reliable VQE energy
+0%
+ ↓
+2%
+ ↓
+5%
+
+The goal is to observe how imperfect
+readout affects VQE accuracy.
 """)
 
-
-print("\nExact one-particle energy:")
 print(
+    f"\nExact one-particle energy = "
     f"{exact_energy:.10f}"
 )
 
-print("\nResults:")
+print("\nFinal comparison:")
 
 for item in results:
 
     print(
-        f"{item['shots']:5d} shots -> "
-        f"measured energy = "
+        f"{item['noise'] * 100:>5.0f}% noise -> "
+        f"Measured E = "
         f"{item['measured_energy']:.10f}, "
-        f"error = "
+        f"Error = "
         f"{item['total_error']:.10e}"
     )
 
 
 # ============================================================
-# FINAL SUCCESS MESSAGE
+# SUCCESS MESSAGE
 # ============================================================
 
 print("\n" + "=" * 60)
 
-if results[-1]["total_error"] < 0.02:
-
-    print(
-        "SUCCESS: Higher shot budget gives a "
-        "reliable VQE energy estimate."
-    )
-
-else:
-
-    print(
-        "Measurement noise is still significant. "
-        "More shots may be required."
-    )
+print(
+    "SUCCESS: VQE was tested under "
+    "different readout-noise levels."
+)
 
 print("=" * 60)
 
-print("\nDay 43 shot-budget experiment complete.")
+print("\nDay 44 readout-noise experiment complete.")
