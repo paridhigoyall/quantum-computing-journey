@@ -1,49 +1,28 @@
 import numpy as np
 from scipy.optimize import minimize
 
-np.set_printoptions(precision=6, suppress=True)
 
 # ============================================================
-# DAY 44 - VQE WITH READOUT NOISE
+# DAY 45
+# FERMIONIC VQE — READOUT ERROR MITIGATION
 # ============================================================
 
-print("=" * 60)
-print("DAY 44 - VQE WITH READOUT NOISE")
-print("=" * 60)
 
-
-# ============================================================
-# PHYSICAL PARAMETERS
-# ============================================================
+# ------------------------------------------------------------
+# 1. Physical Hamiltonian parameters
+# ------------------------------------------------------------
 
 eps0 = 0.7
 eps1 = 1.1
 t = -0.4
 U = 0.8
 
-SHOTS = 2048
 
-# Readout error probabilities
-NOISE_LEVELS = [0.00, 0.02, 0.05]
+# ------------------------------------------------------------
+# 2. One-qubit Pauli matrices
+# ------------------------------------------------------------
 
-print("\nPhysical parameters:")
-print(f"eps0 = {eps0}")
-print(f"eps1 = {eps1}")
-print(f"t    = {t}")
-print(f"U    = {U}")
-
-print(f"\nShots per measurement = {SHOTS}")
-
-print("\nReadout noise levels:")
-for noise in NOISE_LEVELS:
-    print(f"  {noise * 100:.0f}% readout error")
-
-
-# ============================================================
-# PAULI MATRICES
-# ============================================================
-
-I = np.eye(2, dtype=complex)
+I1 = np.eye(2)
 
 X = np.array([
     [0, 1],
@@ -61,799 +40,1119 @@ Z = np.array([
 ], dtype=complex)
 
 
+# ------------------------------------------------------------
+# 3. Two-qubit identity
+# ------------------------------------------------------------
+
+I2 = np.kron(I1, I1)
+
+
+# ------------------------------------------------------------
+# 4. Kronecker product helper
+# ------------------------------------------------------------
+
 def kron(a, b):
     return np.kron(a, b)
 
 
-I2 = kron(I, I)
+# ------------------------------------------------------------
+# 5. Two-qubit Pauli operators
+# ------------------------------------------------------------
+
+X0 = kron(X, I1)
+X1 = kron(I1, X)
+
+Y0 = kron(Y, I1)
+Y1 = kron(I1, Y)
+
+Z0 = kron(Z, I1)
+Z1 = kron(I1, Z)
+
 X0X1 = kron(X, X)
 Y0Y1 = kron(Y, Y)
-Z0 = kron(Z, I)
-Z1 = kron(I, Z)
+
 Z0Z1 = kron(Z, Z)
 
 
-# ============================================================
-# JORDAN-WIGNER PAULI HAMILTONIAN
-# ============================================================
+# ------------------------------------------------------------
+# 6. Fermionic Hamiltonian
+#    after Jordan-Wigner transformation
+# ------------------------------------------------------------
 
-cI = (eps0 + eps1) / 2 + U / 4
-cZ0 = -eps0 / 2 - U / 4
-cZ1 = -eps1 / 2 - U / 4
-cZZ = U / 4
-cXX = t / 2
-cYY = t / 2
+# Hamiltonian:
+#
+# H =
+#
+# eps0 * n0
+# + eps1 * n1
+# + t * (X0X1 + Y0Y1)/2
+# + U * n0*n1
+#
+# where
+#
+# n0 = (I2 - Z0)/2
+# n1 = (I2 - Z1)/2
+
+n0_operator = (
+    I2 - Z0
+) / 2
+
+n1_operator = (
+    I2 - Z1
+) / 2
+
 
 H = (
-    cI * I2
-    + cZ0 * Z0
-    + cZ1 * Z1
-    + cZZ * Z0Z1
-    + cXX * X0X1
-    + cYY * Y0Y1
+    eps0 * n0_operator
+    + eps1 * n1_operator
+    + t * (X0X1 + Y0Y1) / 2
+    + U * (n0_operator @ n1_operator)
 )
 
-print("\n" + "=" * 60)
-print("JORDAN-WIGNER PAULI HAMILTONIAN")
-print("=" * 60)
 
-print("\nPauli coefficients:")
-print(f"I      : {cI:+.6f}")
-print(f"Z0     : {cZ0:+.6f}")
-print(f"Z1     : {cZ1:+.6f}")
-print(f"Z0Z1   : {cZZ:+.6f}")
-print(f"X0X1   : {cXX:+.6f}")
-print(f"Y0Y1   : {cYY:+.6f}")
+# ------------------------------------------------------------
+# 7. One-particle sector
+# ------------------------------------------------------------
 
+# Computational basis:
+#
+# |00> -> index 0 -> 0 particles
+# |01> -> index 1 -> 1 particle
+# |10> -> index 2 -> 1 particle
+# |11> -> index 3 -> 2 particles
+#
+# Therefore we only use indices 1 and 2.
 
-# ============================================================
-# EXACT ONE-PARTICLE SOLUTION
-# ============================================================
+one_particle_indices = [1, 2]
 
-H_one = np.array([
-    [eps1, t],
-    [t, eps0]
-], dtype=complex)
+H_one = H[
+    np.ix_(
+        one_particle_indices,
+        one_particle_indices
+    )
+]
 
-eigenvalues, eigenvectors = np.linalg.eigh(H_one)
+exact_eigenvalues = np.linalg.eigvalsh(
+    H_one
+)
 
-exact_energy = float(eigenvalues[0])
-
-print("\n" + "=" * 60)
-print("EXACT ONE-PARTICLE SOLUTION")
-print("=" * 60)
-
-print("\nOne-particle Hamiltonian:")
-print(H_one)
-
-print("\nEigenvalues:")
-print(eigenvalues)
-
-print(f"\nExact one-particle ground energy = "
-      f"{exact_energy:.10f}")
+exact_energy = exact_eigenvalues[0]
 
 
-# ============================================================
-# VQE ANSATZ
-# ============================================================
+# ------------------------------------------------------------
+# 8. VQE ansatz
+# ------------------------------------------------------------
 
-def prepare_state(theta):
+def state(theta):
     """
-    One-particle ansatz:
+    Prepare the one-particle VQE state:
 
         |psi(theta)>
         =
         cos(theta/2)|01>
         +
         sin(theta/2)|10>
-
-    The state therefore remains in the N = 1 sector.
     """
 
-    state = np.array([
-        0,
-        np.cos(theta / 2),
-        np.sin(theta / 2),
-        0
-    ], dtype=complex)
+    psi = np.zeros(
+        4,
+        dtype=complex
+    )
 
-    return state / np.linalg.norm(state)
+    psi[1] = np.cos(
+        theta / 2
+    )
+
+    psi[2] = np.sin(
+        theta / 2
+    )
+
+    return psi
 
 
-# ============================================================
-# IDEAL EXPECTATION VALUE
-# ============================================================
+# ------------------------------------------------------------
+# 9. Expectation value
+# ------------------------------------------------------------
 
-def expectation(state, operator):
+def expectation(
+    psi,
+    operator
+):
 
-    return float(
-        np.real(
-            np.vdot(
-                state,
-                operator @ state
-            )
+    return np.real(
+        np.vdot(
+            psi,
+            operator @ psi
         )
     )
 
 
+# ------------------------------------------------------------
+# 10. Ideal VQE energy
+# ------------------------------------------------------------
+
 def ideal_energy(theta):
 
-    state = prepare_state(theta)
+    psi = state(theta)
 
     return expectation(
-        state,
+        psi,
         H
     )
 
 
-# ============================================================
-# BASIS ROTATIONS
-# ============================================================
+# ------------------------------------------------------------
+# 11. Find ideal VQE optimum
+# ------------------------------------------------------------
 
-H_gate = (X + Z) / np.sqrt(2)
+result = minimize(
+    lambda x: ideal_energy(x[0]),
+    x0=[1.0],
+    method="COBYLA",
+    options={
+        "maxiter": 500,
+        "rhobeg": 0.5,
+        "tol": 1e-10
+    }
+)
 
-S_dagger = np.array([
-    [1, 0],
-    [0, -1j]
-], dtype=complex)
+best_theta = result.x[0]
 
+psi_opt = state(
+    best_theta
+)
 
-def rotate_for_basis(state, basis):
-
-    if basis == "Z":
-        return state
-
-    if basis == "X":
-
-        rotation = kron(
-            H_gate,
-            H_gate
-        )
-
-        return rotation @ state
-
-    if basis == "Y":
-
-        single_rotation = H_gate @ S_dagger
-
-        rotation = kron(
-            single_rotation,
-            single_rotation
-        )
-
-        return rotation @ state
-
-    raise ValueError("Unknown measurement basis")
+ideal_vqe_energy = ideal_energy(
+    best_theta
+)
 
 
-# ============================================================
-# IDEAL SHOT GENERATION
-# ============================================================
+# ------------------------------------------------------------
+# 12. Convert statevector to probabilities
+# ------------------------------------------------------------
 
-def generate_ideal_samples(
-    state,
-    basis,
-    shots,
-    rng
+def probabilities_from_state(psi):
+
+    probabilities = np.abs(psi) ** 2
+
+    return probabilities
+
+
+# ------------------------------------------------------------
+# 13. Sample measurement counts
+# ------------------------------------------------------------
+
+def sample_counts(
+    probabilities,
+    shots
 ):
 
-    rotated_state = rotate_for_basis(
-        state,
-        basis
-    )
-
-    probabilities = np.abs(
-        rotated_state
-    ) ** 2
-
-    probabilities /= np.sum(
-        probabilities
-    )
-
-    samples = rng.choice(
+    outcomes = np.random.choice(
         4,
         size=shots,
         p=probabilities
     )
 
-    return samples
+    counts = np.bincount(
+        outcomes,
+        minlength=4
+    )
+
+    return counts
 
 
-# ============================================================
-# READOUT NOISE
-# ============================================================
+# ------------------------------------------------------------
+# 14. Apply classical readout noise
+# ------------------------------------------------------------
 
 def apply_readout_noise(
-    samples,
-    noise_probability,
-    rng
-):
-    """
-    Simulate measurement/readout errors.
-
-    Each measured qubit has an independent probability
-    of having its classical bit flipped.
-
-    Example:
-
-        actual 0
-           ↓
-        2% error
-           ↓
-        reported 1
-
-    and:
-
-        actual 1
-           ↓
-        2% error
-           ↓
-        reported 0
-    """
-
-    noisy_samples = samples.copy()
-
-    if noise_probability <= 0:
-        return noisy_samples
-
-    for i in range(len(noisy_samples)):
-
-        # Convert integer outcome to two bits
-        b0 = (noisy_samples[i] >> 1) & 1
-        b1 = noisy_samples[i] & 1
-
-        # Qubit 0 readout error
-        if rng.random() < noise_probability:
-            b0 = 1 - b0
-
-        # Qubit 1 readout error
-        if rng.random() < noise_probability:
-            b1 = 1 - b1
-
-        # Convert bits back to integer
-        noisy_samples[i] = (
-            (b0 << 1) | b1
-        )
-
-    return noisy_samples
-
-
-# ============================================================
-# COUNTS
-# ============================================================
-
-def samples_to_counts(samples):
-
-    return {
-        "00": int(np.sum(samples == 0)),
-        "01": int(np.sum(samples == 1)),
-        "10": int(np.sum(samples == 2)),
-        "11": int(np.sum(samples == 3))
-    }
-
-
-# ============================================================
-# EXPECTATION FROM COUNTS
-# ============================================================
-
-def expectation_from_counts(
     counts,
-    observable
+    error_rate
 ):
+    """
+    Each measured qubit has probability p
+    of being reported incorrectly.
+    """
 
-    total = sum(
-        counts.values()
+    noisy_counts = np.zeros(
+        4,
+        dtype=int
     )
 
-    value = 0.0
+    for state_index, count in enumerate(counts):
 
-    for bitstring, count in counts.items():
+        for _ in range(count):
 
-        b0 = int(bitstring[0])
-        b1 = int(bitstring[1])
+            # Convert index to two bits.
+            #
+            # 00 -> 0
+            # 01 -> 1
+            # 10 -> 2
+            # 11 -> 3
 
-        z0 = 1 if b0 == 0 else -1
-        z1 = 1 if b1 == 0 else -1
+            b0 = (
+                state_index >> 1
+            ) & 1
 
-        if observable == "Z0":
-
-            eigenvalue = z0
-
-        elif observable == "Z1":
-
-            eigenvalue = z1
-
-        elif observable == "Z0Z1":
-
-            eigenvalue = z0 * z1
-
-        elif observable == "X0X1":
-
-            eigenvalue = z0 * z1
-
-        elif observable == "Y0Y1":
-
-            eigenvalue = z0 * z1
-
-        else:
-
-            raise ValueError(
-                "Unknown observable"
+            b1 = (
+                state_index
+                & 1
             )
 
-        value += (
-            eigenvalue * count
+            # Flip first bit.
+
+            if np.random.random() < error_rate:
+                b0 = 1 - b0
+
+            # Flip second bit.
+
+            if np.random.random() < error_rate:
+                b1 = 1 - b1
+
+            # Convert bits back to index.
+
+            noisy_index = (
+                2 * b0 + b1
+            )
+
+            noisy_counts[
+                noisy_index
+            ] += 1
+
+    return noisy_counts
+
+
+# ------------------------------------------------------------
+# 15. Create readout confusion matrix
+# ------------------------------------------------------------
+
+def create_confusion_matrix(
+    error_rate
+):
+    """
+    Single-qubit confusion matrix:
+
+                    Reported
+                    0       1
+
+        Actual 0   1-p      p
+        Actual 1    p      1-p
+    """
+
+    p = error_rate
+
+    single_qubit_matrix = np.array([
+        [1 - p, p],
+        [p, 1 - p]
+    ])
+
+    # Independent errors on both qubits.
+
+    two_qubit_matrix = np.kron(
+        single_qubit_matrix,
+        single_qubit_matrix
+    )
+
+    return two_qubit_matrix
+
+
+# ------------------------------------------------------------
+# 16. Readout-error mitigation
+# ------------------------------------------------------------
+
+def mitigate_counts(
+    noisy_counts,
+    error_rate
+):
+    """
+    Correct noisy probabilities using
+    the inverse of the known confusion matrix.
+    """
+
+    shots = np.sum(
+        noisy_counts
+    )
+
+    measured_probabilities = (
+        noisy_counts / shots
+    )
+
+    confusion_matrix = (
+        create_confusion_matrix(
+            error_rate
         )
+    )
 
-    return value / total
+    # Measurement model:
+    #
+    # p_measured = C @ p_true
+    #
+    # Therefore:
+    #
+    # p_true = C^(-1) @ p_measured
+    #
+    # solve() is numerically preferable to
+    # explicitly calculating the inverse.
+
+    corrected_probabilities = np.linalg.solve(
+        confusion_matrix,
+        measured_probabilities
+    )
+
+    # Matrix inversion combined with finite-shot
+    # statistics can produce small negative values.
+
+    corrected_probabilities = np.clip(
+        corrected_probabilities,
+        0,
+        None
+    )
+
+    # Renormalize.
+
+    total = np.sum(
+        corrected_probabilities
+    )
+
+    if total > 0:
+
+        corrected_probabilities /= total
+
+    return corrected_probabilities
 
 
-# ============================================================
-# NOISY MEASUREMENT
-# ============================================================
+# ------------------------------------------------------------
+# 17. Expectation from computational-basis probabilities
+# ------------------------------------------------------------
 
-def measure_counts(
-    state,
-    basis,
-    shots,
-    noise_probability,
-    rng
+def expectation_from_probabilities(
+    probabilities,
+    operator
 ):
 
-    ideal_samples = generate_ideal_samples(
-        state,
-        basis,
-        shots,
-        rng
+    eigenvalues = np.real(
+        np.diag(operator)
     )
 
-    noisy_samples = apply_readout_noise(
-        ideal_samples,
-        noise_probability,
-        rng
-    )
-
-    return samples_to_counts(
-        noisy_samples
+    return np.sum(
+        probabilities * eigenvalues
     )
 
 
-# ============================================================
-# SHOT-BASED ENERGY
-# ============================================================
+# ------------------------------------------------------------
+# 18. Z-basis measurements
+# ------------------------------------------------------------
 
-def measured_energy(
-    theta,
+def measure_z_expectations(
+    psi,
     shots,
-    noise_probability,
-    rng,
-    return_details=False
+    readout_error
 ):
 
-    state = prepare_state(theta)
+    # True probabilities.
 
-    # --------------------------------------------------------
-    # Z BASIS
-    # --------------------------------------------------------
-
-    z_counts = measure_counts(
-        state,
-        "Z",
-        shots,
-        noise_probability,
-        rng
-    )
-
-    z0 = expectation_from_counts(
-        z_counts,
-        "Z0"
-    )
-
-    z1 = expectation_from_counts(
-        z_counts,
-        "Z1"
-    )
-
-    zz = expectation_from_counts(
-        z_counts,
-        "Z0Z1"
-    )
-
-    # --------------------------------------------------------
-    # X BASIS
-    # --------------------------------------------------------
-
-    x_counts = measure_counts(
-        state,
-        "X",
-        shots,
-        noise_probability,
-        rng
-    )
-
-    xx = expectation_from_counts(
-        x_counts,
-        "X0X1"
-    )
-
-    # --------------------------------------------------------
-    # Y BASIS
-    # --------------------------------------------------------
-
-    y_counts = measure_counts(
-        state,
-        "Y",
-        shots,
-        noise_probability,
-        rng
-    )
-
-    yy = expectation_from_counts(
-        y_counts,
-        "Y0Y1"
-    )
-
-    # --------------------------------------------------------
-    # RECONSTRUCT ENERGY
-    # --------------------------------------------------------
-
-    energy = (
-        cI
-        + cZ0 * z0
-        + cZ1 * z1
-        + cZZ * zz
-        + cXX * xx
-        + cYY * yy
-    )
-
-    if return_details:
-
-        return energy, {
-            "Z": z_counts,
-            "X": x_counts,
-            "Y": y_counts,
-            "Z0": z0,
-            "Z1": z1,
-            "Z0Z1": zz,
-            "X0X1": xx,
-            "Y0Y1": yy
-        }
-
-    return energy
-
-
-# ============================================================
-# INITIAL STATE
-# ============================================================
-
-initial_theta = 0.5
-
-print("\n" + "=" * 60)
-print("INITIAL STATE")
-print("=" * 60)
-
-print(
-    f"\nInitial theta = "
-    f"{initial_theta:.6f}"
-)
-
-initial_state = prepare_state(
-    initial_theta
-)
-
-print("\nInitial state:")
-print(initial_state)
-
-print(
-    f"\nInitial ideal energy = "
-    f"{ideal_energy(initial_theta):.10f}"
-)
-
-
-# ============================================================
-# VQE FOR EACH NOISE LEVEL
-# ============================================================
-
-results = []
-
-
-for noise in NOISE_LEVELS:
-
-    print("\n")
-    print("=" * 60)
-    print(
-        f"VQE WITH "
-        f"{noise * 100:.0f}% READOUT NOISE"
-    )
-    print("=" * 60)
-
-    # Separate random generator for each experiment
-    rng = np.random.default_rng(
-        44000 + int(noise * 100)
-    )
-
-    history = []
-
-    def objective(x):
-
-        theta = float(x[0])
-
-        energy = measured_energy(
-            theta,
-            SHOTS,
-            noise,
-            rng
+    ideal_probabilities = (
+        probabilities_from_state(
+            psi
         )
+    )
 
-        history.append(
-            (theta, energy)
+    # True measurement counts.
+
+    true_counts = sample_counts(
+        ideal_probabilities,
+        shots
+    )
+
+    # Add readout noise.
+
+    noisy_counts = apply_readout_noise(
+        true_counts,
+        readout_error
+    )
+
+    # Convert noisy counts to probabilities.
+
+    noisy_probabilities = (
+        noisy_counts
+        / np.sum(noisy_counts)
+    )
+
+    # Correct noisy probabilities.
+
+    corrected_probabilities = (
+        mitigate_counts(
+            noisy_counts,
+            readout_error
         )
+    )
 
-        print(
-            f"Step {len(history):03d}: "
-            f"theta={theta: .8f} | "
-            f"Measured E={energy: .10f}"
+    # --------------------------------------------------------
+    # Raw expectation values
+    # --------------------------------------------------------
+
+    raw_z0 = expectation_from_probabilities(
+        noisy_probabilities,
+        Z0
+    )
+
+    raw_z1 = expectation_from_probabilities(
+        noisy_probabilities,
+        Z1
+    )
+
+    raw_z0z1 = expectation_from_probabilities(
+        noisy_probabilities,
+        Z0Z1
+    )
+
+    # --------------------------------------------------------
+    # Mitigated expectation values
+    # --------------------------------------------------------
+
+    corrected_z0 = expectation_from_probabilities(
+        corrected_probabilities,
+        Z0
+    )
+
+    corrected_z1 = expectation_from_probabilities(
+        corrected_probabilities,
+        Z1
+    )
+
+    corrected_z0z1 = expectation_from_probabilities(
+        corrected_probabilities,
+        Z0Z1
+    )
+
+    return (
+        true_counts,
+        noisy_counts,
+        noisy_probabilities,
+        corrected_probabilities,
+
+        raw_z0,
+        raw_z1,
+        raw_z0z1,
+
+        corrected_z0,
+        corrected_z1,
+        corrected_z0z1
+    )
+
+
+# ------------------------------------------------------------
+# 19. Rotation for X-basis measurement
+# ------------------------------------------------------------
+
+def rotate_for_x(psi):
+
+    H_gate = (
+        1 / np.sqrt(2)
+    ) * np.array([
+        [1, 1],
+        [1, -1]
+    ], dtype=complex)
+
+    rotation = kron(
+        H_gate,
+        H_gate
+    )
+
+    return rotation @ psi
+
+
+# ------------------------------------------------------------
+# 20. Rotation for Y-basis measurement
+# ------------------------------------------------------------
+
+def rotate_for_y(psi):
+
+    S_dagger = np.array([
+        [1, 0],
+        [0, -1j]
+    ], dtype=complex)
+
+    H_gate = (
+        1 / np.sqrt(2)
+    ) * np.array([
+        [1, 1],
+        [1, -1]
+    ], dtype=complex)
+
+    single_rotation = (
+        H_gate @ S_dagger
+    )
+
+    rotation = kron(
+        single_rotation,
+        single_rotation
+    )
+
+    return rotation @ psi
+
+
+# ------------------------------------------------------------
+# 21. Measure XX or YY
+# ------------------------------------------------------------
+
+def measure_two_qubit_pauli(
+    rotated_state,
+    shots,
+    readout_error
+):
+
+    probabilities = (
+        probabilities_from_state(
+            rotated_state
+        )
+    )
+
+    # True counts.
+
+    true_counts = sample_counts(
+        probabilities,
+        shots
+    )
+
+    # Apply readout noise.
+
+    noisy_counts = apply_readout_noise(
+        true_counts,
+        readout_error
+    )
+
+    # Noisy probabilities.
+
+    noisy_probabilities = (
+        noisy_counts
+        / np.sum(noisy_counts)
+    )
+
+    # Correct probabilities.
+
+    corrected_probabilities = (
+        mitigate_counts(
+            noisy_counts,
+            readout_error
+        )
+    )
+
+    # For XX and YY:
+    #
+    # 00 -> +1
+    # 01 -> -1
+    # 10 -> -1
+    # 11 -> +1
+
+    eigenvalues = np.array([
+        1,
+        -1,
+        -1,
+        1
+    ])
+
+    raw_expectation = np.sum(
+        noisy_probabilities
+        * eigenvalues
+    )
+
+    corrected_expectation = np.sum(
+        corrected_probabilities
+        * eigenvalues
+    )
+
+    return (
+        true_counts,
+        noisy_counts,
+        raw_expectation,
+        corrected_expectation
+    )
+
+
+# ------------------------------------------------------------
+# 22. Complete energy measurement
+# ------------------------------------------------------------
+
+def measure_energy(
+    psi,
+    shots,
+    readout_error
+):
+
+    # ========================================================
+    # Z measurements
+    # ========================================================
+
+    (
+        true_z_counts,
+        noisy_z_counts,
+        noisy_z_probabilities,
+        corrected_z_probabilities,
+
+        raw_z0,
+        raw_z1,
+        raw_z0z1,
+
+        corrected_z0,
+        corrected_z1,
+        corrected_z0z1
+
+    ) = measure_z_expectations(
+        psi,
+        shots,
+        readout_error
+    )
+
+
+    # ========================================================
+    # X measurement
+    # ========================================================
+
+    psi_x = rotate_for_x(
+        psi
+    )
+
+    (
+        true_x_counts,
+        noisy_x_counts,
+        raw_xx,
+        corrected_xx
+
+    ) = measure_two_qubit_pauli(
+        psi_x,
+        shots,
+        readout_error
+    )
+
+
+    # ========================================================
+    # Y measurement
+    # ========================================================
+
+    psi_y = rotate_for_y(
+        psi
+    )
+
+    (
+        true_y_counts,
+        noisy_y_counts,
+        raw_yy,
+        corrected_yy
+
+    ) = measure_two_qubit_pauli(
+        psi_y,
+        shots,
+        readout_error
+    )
+
+
+    # ========================================================
+    # Reconstruct energy
+    # ========================================================
+
+    def energy_from_expectations(
+        z0,
+        z1,
+        z0z1,
+        xx,
+        yy
+    ):
+
+        # Number operators.
+
+        n0 = (
+            1 - z0
+        ) / 2
+
+        n1 = (
+            1 - z1
+        ) / 2
+
+        # Interaction term:
+        #
+        # n0*n1
+        #
+        # = (1 - Z0 - Z1 + Z0Z1)/4
+
+        interaction = (
+            1
+            - z0
+            - z1
+            + z0z1
+        ) / 4
+
+        energy = (
+            eps0 * n0
+            + eps1 * n1
+            + t * (xx + yy) / 2
+            + U * interaction
         )
 
         return energy
 
-    # --------------------------------------------------------
-    # COBYLA
-    # --------------------------------------------------------
 
-    result = minimize(
-        objective,
-        x0=np.array([initial_theta]),
-        method="COBYLA",
-        options={
-            "maxiter": 60,
-            "rhobeg": 0.5,
-            "tol": 1e-5
+    # Raw noisy energy.
+
+    raw_energy = energy_from_expectations(
+        raw_z0,
+        raw_z1,
+        raw_z0z1,
+        raw_xx,
+        raw_yy
+    )
+
+
+    # Mitigated energy.
+
+    mitigated_energy = energy_from_expectations(
+        corrected_z0,
+        corrected_z1,
+        corrected_z0z1,
+        corrected_xx,
+        corrected_yy
+    )
+
+
+    return (
+        raw_energy,
+        mitigated_energy,
+
+        {
+            "z0": raw_z0,
+            "z1": raw_z1,
+            "z0z1": raw_z0z1,
+            "xx": raw_xx,
+            "yy": raw_yy
+        },
+
+        {
+            "z0": corrected_z0,
+            "z1": corrected_z1,
+            "z0z1": corrected_z0z1,
+            "xx": corrected_xx,
+            "yy": corrected_yy
+        },
+
+        {
+            "true_z": true_z_counts,
+            "noisy_z": noisy_z_counts,
+
+            "true_x": true_x_counts,
+            "noisy_x": noisy_x_counts,
+
+            "true_y": true_y_counts,
+            "noisy_y": noisy_y_counts
         }
     )
 
-    best_theta = float(
-        result.x[0]
-    )
 
-    best_state = prepare_state(
-        best_theta
-    )
+# ============================================================
+# MAIN PROGRAM
+# ============================================================
 
-    ideal_vqe_energy = ideal_energy(
-        best_theta
-    )
-
-    final_measured_energy, details = measured_energy(
-        best_theta,
-        SHOTS,
-        noise,
-        rng,
-        return_details=True
-    )
-
-    ideal_error = abs(
-        ideal_vqe_energy -
-        exact_energy
-    )
-
-    measurement_error = abs(
-        final_measured_energy -
-        ideal_vqe_energy
-    )
-
-    total_error = abs(
-        final_measured_energy -
-        exact_energy
-    )
-
-    results.append({
-        "noise": noise,
-        "theta": best_theta,
-        "ideal_energy": ideal_vqe_energy,
-        "measured_energy": final_measured_energy,
-        "ideal_error": ideal_error,
-        "measurement_error": measurement_error,
-        "total_error": total_error
-    })
+if __name__ == "__main__":
 
     # --------------------------------------------------------
-    # FINAL DETAILS
+    # Experiment settings
     # --------------------------------------------------------
 
-    print("\n" + "-" * 60)
-    print(
-        f"RESULT FOR "
-        f"{noise * 100:.0f}% READOUT NOISE"
-    )
-    print("-" * 60)
+    shots = 2048
+
+    # Day 44 used 5% readout noise.
+
+    readout_error = 0.05
+
+
+    # ========================================================
+    # EXACT RESULTS
+    # ========================================================
+
+    print("\n" + "=" * 65)
+    print("DAY 45 — READOUT ERROR MITIGATION")
+    print("=" * 65)
+
+    print("\nOne-particle Hamiltonian:")
+
+    print(H_one)
+
+    print("\nExact one-particle eigenvalues:")
+
+    print(exact_eigenvalues)
+
+    print("\nExact ground-state energy:")
 
     print(
-        f"Best theta           = "
+        f"{exact_energy:.10f}"
+    )
+
+
+    # ========================================================
+    # IDEAL VQE
+    # ========================================================
+
+    print("\n" + "-" * 65)
+    print("IDEAL VQE")
+    print("-" * 65)
+
+    print(
+        f"Optimal theta:       "
         f"{best_theta:.10f}"
     )
 
     print(
-        f"Ideal VQE energy     = "
+        f"Ideal VQE energy:    "
         f"{ideal_vqe_energy:.10f}"
     )
 
+    print("\nOptimized state:")
+
+    print(psi_opt)
+
+
+    # ========================================================
+    # IDEAL EXPECTATION VALUES
+    # ========================================================
+
+    ideal_z0 = expectation(
+        psi_opt,
+        Z0
+    )
+
+    ideal_z1 = expectation(
+        psi_opt,
+        Z1
+    )
+
+    ideal_z0z1 = expectation(
+        psi_opt,
+        Z0Z1
+    )
+
+    ideal_xx = expectation(
+        psi_opt,
+        X0X1
+    )
+
+    ideal_yy = expectation(
+        psi_opt,
+        Y0Y1
+    )
+
+    print("\nIdeal expectation values:")
+
     print(
-        f"Measured VQE energy  = "
-        f"{final_measured_energy:.10f}"
+        f"<Z0>   = {ideal_z0:.10f}"
     )
 
     print(
-        f"Exact energy         = "
+        f"<Z1>   = {ideal_z1:.10f}"
+    )
+
+    print(
+        f"<Z0Z1> = {ideal_z0z1:.10f}"
+    )
+
+    print(
+        f"<XX>   = {ideal_xx:.10f}"
+    )
+
+    print(
+        f"<YY>   = {ideal_yy:.10f}"
+    )
+
+
+    # ========================================================
+    # READOUT ERROR MODEL
+    # ========================================================
+
+    confusion_matrix = (
+        create_confusion_matrix(
+            readout_error
+        )
+    )
+
+    print("\n" + "-" * 65)
+    print("READOUT ERROR MODEL")
+    print("-" * 65)
+
+    print(
+        f"\nReadout error per qubit: "
+        f"{readout_error * 100:.1f}%"
+    )
+
+    print("\nTwo-qubit confusion matrix:")
+
+    print(confusion_matrix)
+
+
+    # ========================================================
+    # NOISY MEASUREMENT + MITIGATION
+    # ========================================================
+
+    (
+        raw_energy,
+        mitigated_energy,
+
+        raw_expectations,
+        corrected_expectations,
+
+        counts
+
+    ) = measure_energy(
+        psi_opt,
+        shots,
+        readout_error
+    )
+
+
+    # ========================================================
+    # MEASUREMENT RESULTS
+    # ========================================================
+
+    print("\n" + "-" * 65)
+    print("MEASUREMENT RESULTS")
+    print("-" * 65)
+
+    print(
+        f"\nShots: {shots}"
+    )
+
+
+    print("\nRaw noisy expectation values:")
+
+    for name, value in raw_expectations.items():
+
+        print(
+            f"<{name}> = {value:.10f}"
+        )
+
+
+    print("\nMitigated expectation values:")
+
+    for name, value in corrected_expectations.items():
+
+        print(
+            f"<{name}> = {value:.10f}"
+        )
+
+
+    # ========================================================
+    # ENERGY COMPARISON
+    # ========================================================
+
+    print("\n" + "=" * 65)
+    print("ENERGY COMPARISON")
+    print("=" * 65)
+
+
+    raw_error = abs(
+        raw_energy
+        - exact_energy
+    )
+
+
+    mitigated_error = abs(
+        mitigated_energy
+        - exact_energy
+    )
+
+
+    ideal_error = abs(
+        ideal_vqe_energy
+        - exact_energy
+    )
+
+
+    print(
+        f"\nExact energy:       "
         f"{exact_energy:.10f}"
     )
 
     print(
-        f"Ideal VQE error      = "
-        f"{ideal_error:.10e}"
+        f"Ideal VQE energy:   "
+        f"{ideal_vqe_energy:.10f}"
     )
 
     print(
-        f"Measurement error    = "
-        f"{measurement_error:.10e}"
+        f"Raw noisy energy:   "
+        f"{raw_energy:.10f}"
     )
 
     print(
-        f"Total measured error = "
-        f"{total_error:.10e}"
+        f"Mitigated energy:   "
+        f"{mitigated_energy:.10f}"
     )
 
 
-# ============================================================
-# NOISE COMPARISON
-# ============================================================
-
-print("\n" + "=" * 60)
-print("READOUT NOISE COMPARISON")
-print("=" * 60)
-
-print(
-    "\n"
-    f"{'Noise':>8} "
-    f"{'Theta':>14} "
-    f"{'Ideal E':>14} "
-    f"{'Measured E':>14} "
-    f"{'Total Error':>14}"
-)
-
-print("-" * 68)
-
-for item in results:
+    print("\nErrors:")
 
     print(
-        f"{item['noise'] * 100:>7.0f}% "
-        f"{item['theta']:>14.8f} "
-        f"{item['ideal_energy']:>14.8f} "
-        f"{item['measured_energy']:>14.8f} "
-        f"{item['total_error']:>14.8f}"
+        f"Ideal VQE error:    "
+        f"{ideal_error:.10f}"
     )
-
-
-# ============================================================
-# EXPECTATION VALUES FOR 0% NOISE
-# ============================================================
-
-zero_noise_result = results[0]
-
-zero_noise_theta = (
-    zero_noise_result["theta"]
-)
-
-zero_noise_state = prepare_state(
-    zero_noise_theta
-)
-
-print("\n" + "=" * 60)
-print("IDEAL EXPECTATION VALUES")
-print("=" * 60)
-
-print(
-    f"\n<Z0>   = "
-    f"{expectation(zero_noise_state, Z0):.10f}"
-)
-
-print(
-    f"<Z1>   = "
-    f"{expectation(zero_noise_state, Z1):.10f}"
-)
-
-print(
-    f"<Z0Z1> = "
-    f"{expectation(zero_noise_state, Z0Z1):.10f}"
-)
-
-print(
-    f"<X0X1> = "
-    f"{expectation(zero_noise_state, X0X1):.10f}"
-)
-
-print(
-    f"<Y0Y1> = "
-    f"{expectation(zero_noise_state, Y0Y1):.10f}"
-)
-
-
-# ============================================================
-# DAY 44 SUMMARY
-# ============================================================
-
-print("\n" + "=" * 60)
-print("DAY 44 SUMMARY")
-print("=" * 60)
-
-print("""
-Day 43:
-    Studied finite-shot measurement noise.
-
-Day 44:
-    Added readout noise to the measurement process.
-
-Pipeline:
-
-Parameterized state
-        ↓
-Quantum measurement
-        ↓
-Readout error
-        ↓
-Measured bitstring
-        ↓
-Expectation value
-        ↓
-Hamiltonian energy
-        ↓
-COBYLA
-        ↓
-New theta
-        ↓
-Repeat
-
-Noise levels tested:
-
-0%
- ↓
-2%
- ↓
-5%
-
-The goal is to observe how imperfect
-readout affects VQE accuracy.
-""")
-
-print(
-    f"\nExact one-particle energy = "
-    f"{exact_energy:.10f}"
-)
-
-print("\nFinal comparison:")
-
-for item in results:
 
     print(
-        f"{item['noise'] * 100:>5.0f}% noise -> "
-        f"Measured E = "
-        f"{item['measured_energy']:.10f}, "
-        f"Error = "
-        f"{item['total_error']:.10e}"
+        f"Raw noisy error:    "
+        f"{raw_error:.10f}"
+    )
+
+    print(
+        f"Mitigated error:    "
+        f"{mitigated_error:.10f}"
     )
 
 
-# ============================================================
-# SUCCESS MESSAGE
-# ============================================================
+    # ========================================================
+    # MITIGATION IMPROVEMENT
+    # ========================================================
 
-print("\n" + "=" * 60)
+    if raw_error > 0:
 
-print(
-    "SUCCESS: VQE was tested under "
-    "different readout-noise levels."
-)
+        improvement = (
+            (raw_error - mitigated_error)
+            / raw_error
+        ) * 100
 
-print("=" * 60)
+        print(
+            f"\nError improvement from mitigation: "
+            f"{improvement:.2f}%"
+        )
 
-print("\nDay 44 readout-noise experiment complete.")
+
+    # ========================================================
+    # Z-BASIS COUNTS
+    # ========================================================
+
+    print("\n" + "-" * 65)
+    print("Z-BASIS COUNTS")
+    print("-" * 65)
+
+
+    print("\nTrue counts:")
+
+    print(
+        f"00 = {counts['true_z'][0]}, "
+        f"01 = {counts['true_z'][1]}, "
+        f"10 = {counts['true_z'][2]}, "
+        f"11 = {counts['true_z'][3]}"
+    )
+
+
+    print("\nNoisy reported counts:")
+
+    print(
+        f"00 = {counts['noisy_z'][0]}, "
+        f"01 = {counts['noisy_z'][1]}, "
+        f"10 = {counts['noisy_z'][2]}, "
+        f"11 = {counts['noisy_z'][3]}"
+    )
+
+
+    # ========================================================
+    # COMPLETE
+    # ========================================================
+
+    print("\n" + "=" * 65)
+    print("DAY 45 READOUT-MITIGATION EXPERIMENT COMPLETE")
+    print("=" * 65)
