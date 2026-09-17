@@ -1,0 +1,596 @@
+import numpy as np
+from itertools import product
+
+
+# ============================================================
+# DAY 58: CODE DISTANCE
+# 3-QUBIT BIT-FLIP REPETITION CODE
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Basic Pauli matrices
+# ------------------------------------------------------------
+
+I = np.eye(2, dtype=complex)
+
+X = np.array([
+    [0, 1],
+    [1, 0]
+], dtype=complex)
+
+Y = np.array([
+    [0, -1j],
+    [1j, 0]
+], dtype=complex)
+
+Z = np.array([
+    [1, 0],
+    [0, -1]
+], dtype=complex)
+
+
+# ------------------------------------------------------------
+# Tensor product helper
+# ------------------------------------------------------------
+
+def kron_all(operators):
+    result = operators[0]
+
+    for op in operators[1:]:
+        result = np.kron(result, op)
+
+    return result
+
+
+# ------------------------------------------------------------
+# 3-qubit Pauli operator
+#
+# Example:
+# "XII" = X on qubit 0
+# "IXI" = X on qubit 1
+# "IIX" = X on qubit 2
+# ------------------------------------------------------------
+
+PAULIS = {
+    "I": I,
+    "X": X,
+    "Y": Y,
+    "Z": Z
+}
+
+
+def pauli_operator(label):
+    return kron_all([PAULIS[p] for p in label])
+
+
+# ------------------------------------------------------------
+# Operator weight
+#
+# Weight = number of non-identity operations
+# ------------------------------------------------------------
+
+def operator_weight(label):
+    return sum(1 for p in label if p != "I")
+
+
+# ------------------------------------------------------------
+# Logical code states
+#
+# |0_L> = |000>
+# |1_L> = |111>
+#
+# Arbitrary logical state:
+#
+# |psi_L> = alpha|000> + beta|111>
+# ------------------------------------------------------------
+
+logical_zero = np.zeros(8, dtype=complex)
+logical_zero[0] = 1.0
+
+logical_one = np.zeros(8, dtype=complex)
+logical_one[7] = 1.0
+
+
+# Example logical state
+
+alpha = 1 / np.sqrt(3)
+beta = np.sqrt(2 / 3)
+
+logical_state = alpha * logical_zero + beta * logical_one
+
+
+# ------------------------------------------------------------
+# Stabilizers
+#
+# S1 = Z0 Z1
+# S2 = Z1 Z2
+#
+# In label notation:
+#
+# ZZI = Z on q0 and q1
+# IZZ = Z on q1 and q2
+# ------------------------------------------------------------
+
+S1 = pauli_operator("ZZI")
+S2 = pauli_operator("IZZ")
+
+
+# ------------------------------------------------------------
+# Logical operators
+#
+# Logical X:
+#
+# X_L = X0 X1 X2
+#
+# This maps:
+#
+# |000> -> |111>
+# |111> -> |000>
+#
+# Therefore:
+#
+# weight(X_L) = 3
+# ------------------------------------------------------------
+
+logical_X = pauli_operator("XXX")
+
+
+# Logical Z can be represented by Z on any one
+# physical qubit inside the code space.
+#
+# Z0 is:
+#
+# ZII
+#
+# It gives:
+#
+# Z|0_L> = |0_L>
+# Z|1_L> = -|1_L>
+#
+# Therefore it acts as logical Z.
+#
+# weight(Z_L) = 1
+
+logical_Z = pauli_operator("ZII")
+
+
+# ------------------------------------------------------------
+# Utility functions
+# ------------------------------------------------------------
+
+def expectation(state, operator):
+    return np.vdot(state, operator @ state)
+
+
+def normalize(state):
+    norm = np.linalg.norm(state)
+
+    if norm == 0:
+        return state
+
+    return state / norm
+
+
+def fidelity(state_a, state_b):
+    overlap = np.vdot(state_a, state_b)
+
+    return abs(overlap) ** 2
+
+
+# ============================================================
+# PART 1: VERIFY LOGICAL OPERATORS
+# ============================================================
+
+print("=" * 60)
+print("DAY 58: CODE DISTANCE")
+print("3-QUBIT BIT-FLIP REPETITION CODE")
+print("=" * 60)
+
+
+print("\n--- Logical Code States ---")
+
+print("|0_L> = |000>")
+print("|1_L> = |111>")
+
+print("\nLogical state:")
+print(f"alpha = {alpha:.6f}")
+print(f"beta  = {beta:.6f}")
+
+
+# ------------------------------------------------------------
+# Verify logical X
+# ------------------------------------------------------------
+
+print("\n--- Logical X Verification ---")
+
+result_zero = logical_X @ logical_zero
+result_one = logical_X @ logical_one
+
+print("X_L |0_L> = |111> ?",
+      np.allclose(result_zero, logical_one))
+
+print("X_L |1_L> = |000> ?",
+      np.allclose(result_one, logical_zero))
+
+
+# ------------------------------------------------------------
+# Verify logical Z
+# ------------------------------------------------------------
+
+print("\n--- Logical Z Verification ---")
+
+result_zero_z = logical_Z @ logical_zero
+result_one_z = logical_Z @ logical_one
+
+print("Z_L |0_L> = +|0_L> ?",
+      np.allclose(result_zero_z, logical_zero))
+
+print("Z_L |1_L> = -|1_L> ?",
+      np.allclose(result_one_z, -logical_one))
+
+
+# ============================================================
+# PART 2: OPERATOR WEIGHTS
+# ============================================================
+
+print("\n" + "=" * 60)
+print("OPERATOR WEIGHTS")
+print("=" * 60)
+
+
+print("\nX_L = XXX")
+print("Weight(X_L) =", operator_weight("XXX"))
+
+print("\nZ_L = ZII")
+print("Weight(Z_L) =", operator_weight("ZII"))
+
+
+# ============================================================
+# PART 3: BIT-FLIP DISTANCE
+# ============================================================
+
+print("\n" + "=" * 60)
+print("BIT-FLIP DISTANCE")
+print("=" * 60)
+
+
+print("""
+For the 3-qubit repetition code:
+
+|0_L> = |000>
+|1_L> = |111>
+
+The logical X operator is:
+
+X_L = XXX
+
+Its weight is:
+
+weight(X_L) = 3
+
+Therefore the code has:
+
+d_X = 3
+
+for bit-flip errors.
+""")
+
+
+d_bit_flip = operator_weight("XXX")
+
+print("Bit-flip distance d_X =", d_bit_flip)
+
+
+# ------------------------------------------------------------
+# Error correction capability
+# ------------------------------------------------------------
+
+t_bit_flip = (d_bit_flip - 1) // 2
+detect_bit_flip = d_bit_flip - 1
+
+print("Correctable bit-flip errors =", t_bit_flip)
+print("Detectable bit-flip errors   =", detect_bit_flip)
+
+
+# ============================================================
+# PART 4: FULL QUANTUM CODE DISTANCE
+# ============================================================
+
+print("\n" + "=" * 60)
+print("FULL QUANTUM CODE DISTANCE")
+print("=" * 60)
+
+
+print("""
+For a quantum stabilizer code:
+
+d = minimum weight of an operator
+that:
+
+1. Preserves the code space
+2. Is not merely a stabilizer
+3. Acts non-trivially on logical information
+
+For this code:
+
+ZII
+
+acts as logical Z.
+
+Its weight is only 1.
+
+Therefore:
+
+d = 1
+
+for arbitrary Pauli errors.
+""")
+
+
+full_quantum_distance = operator_weight("ZII")
+
+print("Full quantum code distance d =", full_quantum_distance)
+
+
+# ============================================================
+# PART 5: SEARCH PAULI OPERATORS
+# ============================================================
+
+print("\n" + "=" * 60)
+print("SEARCHING PAULI OPERATORS")
+print("=" * 60)
+
+
+# Generate all 3-qubit Pauli strings
+
+pauli_strings = [
+    "".join(p)
+    for p in product("IXYZ", repeat=3)
+]
+
+
+# ------------------------------------------------------------
+# Check whether an operator preserves the code space
+#
+# We check whether E|0_L> and E|1_L> remain inside the
+# logical code space.
+# ------------------------------------------------------------
+
+def preserves_code_space(operator):
+    result_zero = operator @ logical_zero
+    result_one = operator @ logical_one
+
+    # Project onto the code space
+    P0 = np.vdot(logical_zero, result_zero)
+    P1 = np.vdot(logical_one, result_one)
+
+    reconstructed_zero = P0 * logical_zero
+    reconstructed_one = P1 * logical_one
+
+    zero_preserved = np.allclose(
+        result_zero,
+        reconstructed_zero
+    )
+
+    one_preserved = np.allclose(
+        result_one,
+        reconstructed_one
+    )
+
+    return zero_preserved and one_preserved
+
+
+# ------------------------------------------------------------
+# Check whether an operator is a stabilizer
+#
+# Stabilizer group for this code:
+#
+# III
+# ZZI
+# IZZ
+# ZIZ
+# ------------------------------------------------------------
+
+stabilizers = {
+    "III",
+    "ZZI",
+    "IZZ",
+    "ZIZ"
+}
+
+
+# ------------------------------------------------------------
+# Find minimum-weight logical operators
+# ------------------------------------------------------------
+
+logical_operators = []
+
+for label in pauli_strings:
+
+    if label in stabilizers:
+        continue
+
+    operator = pauli_operator(label)
+
+    if preserves_code_space(operator):
+
+        weight = operator_weight(label)
+
+        logical_operators.append(
+            (weight, label)
+        )
+
+
+logical_operators.sort()
+
+
+print("\nNon-stabilizer Pauli operators preserving code space:")
+
+for weight, label in logical_operators:
+    print(f"{label}  -> weight {weight}")
+
+
+# ------------------------------------------------------------
+# Minimum weight
+# ------------------------------------------------------------
+
+if logical_operators:
+
+    minimum_weight = logical_operators[0][0]
+
+    print("\nMinimum logical operator weight =",
+          minimum_weight)
+
+    print("Therefore full quantum distance =",
+          minimum_weight)
+
+
+# ============================================================
+# PART 6: DISTANCE TABLE
+# ============================================================
+
+print("\n" + "=" * 60)
+print("DISTANCE → ERROR CORRECTION")
+print("=" * 60)
+
+
+distances = [3, 5, 7]
+
+print("\nDistance | Detect | Correct")
+print("-" * 30)
+
+for d in distances:
+
+    detect = d - 1
+    correct = (d - 1) // 2
+
+    print(
+        f"   {d}     |   {detect}    |    {correct}"
+    )
+
+
+# ============================================================
+# PART 7: DEMONSTRATE SINGLE BIT-FLIP ERRORS
+# ============================================================
+
+print("\n" + "=" * 60)
+print("SINGLE BIT-FLIP ERRORS")
+print("=" * 60)
+
+
+single_errors = {
+    "XII": "qubit 0",
+    "IXI": "qubit 1",
+    "IIX": "qubit 2"
+}
+
+
+for label, qubit in single_errors.items():
+
+    error = pauli_operator(label)
+
+    corrupted = error @ logical_state
+
+    print(
+        f"{label} -> error on {qubit}, "
+        f"weight = {operator_weight(label)}"
+    )
+
+    print(
+        "   Error weight <= d_X - 1:",
+        operator_weight(label) <= d_bit_flip - 1
+    )
+
+
+# ============================================================
+# PART 8: LOGICAL ERROR
+# ============================================================
+
+print("\n" + "=" * 60)
+print("LOGICAL ERROR")
+print("=" * 60)
+
+
+logical_error_label = "XXX"
+
+logical_error = pauli_operator(logical_error_label)
+
+corrupted_state = logical_error @ logical_state
+
+print("Logical error:", logical_error_label)
+
+print("Weight:",
+      operator_weight(logical_error))
+
+print("Is this the logical X operator?",
+      np.allclose(logical_error, logical_X))
+
+print("""
+Important:
+
+XXX = X_L
+
+It changes:
+
+alpha|000> + beta|111>
+
+into:
+
+alpha|111> + beta|000>
+
+This is NOT a correctable physical error.
+
+It is a logical error.
+""")
+
+
+# ============================================================
+# PART 9: FINAL SUMMARY
+# ============================================================
+
+print("\n" + "=" * 60)
+print("DAY 58 SUMMARY")
+print("=" * 60)
+
+print("""
+3-Qubit Bit-Flip Code:
+
+|0_L> = |000>
+|1_L> = |111>
+
+Logical X:
+    X_L = XXX
+    weight = 3
+
+Bit-flip distance:
+    d_X = 3
+
+Therefore:
+    Detect up to 2 bit-flip errors
+    Correct up to 1 bit-flip error
+
+BUT:
+
+Logical Z:
+    Z_L = ZII
+    weight = 1
+
+Therefore the full quantum code distance is:
+
+    d = 1
+
+This is because the 3-qubit repetition code
+protects against bit-flip errors, but NOT arbitrary
+quantum errors.
+
+General rule:
+
+    t = floor((d - 1) / 2)
+
+where t is the number of correctable errors.
+""")
+
+print("=" * 60)
+print("END OF DAY 58")
+print("=" * 60)
