@@ -1,0 +1,741 @@
+import numpy as np
+
+
+# ============================================================
+# DAY 59
+# SYNDROME-BASED QUANTUM ERROR CORRECTION
+#
+# 3-QUBIT BIT-FLIP REPETITION CODE
+# ============================================================
+
+
+# ------------------------------------------------------------
+# 1. BASIC PAULI MATRICES
+# ------------------------------------------------------------
+
+I = np.eye(2, dtype=complex)
+
+X = np.array([
+    [0, 1],
+    [1, 0]
+], dtype=complex)
+
+Y = np.array([
+    [0, -1j],
+    [1j, 0]
+], dtype=complex)
+
+Z = np.array([
+    [1, 0],
+    [0, -1]
+], dtype=complex)
+
+
+# ------------------------------------------------------------
+# 2. TENSOR PRODUCT
+# ------------------------------------------------------------
+
+def kron_all(operators):
+    result = operators[0]
+
+    for operator in operators[1:]:
+        result = np.kron(result, operator)
+
+    return result
+
+
+# ------------------------------------------------------------
+# 3. CREATE 3-QUBIT OPERATORS
+#
+# "XII" -> X on qubit 0
+# "IXI" -> X on qubit 1
+# "IIX" -> X on qubit 2
+# ------------------------------------------------------------
+
+PAULIS = {
+    "I": I,
+    "X": X,
+    "Y": Y,
+    "Z": Z
+}
+
+
+def pauli_operator(label):
+    return kron_all([PAULIS[p] for p in label])
+
+
+# ------------------------------------------------------------
+# 4. BASIS STATES
+# ------------------------------------------------------------
+
+zero = np.array([1, 0], dtype=complex)
+one = np.array([0, 1], dtype=complex)
+
+
+# ------------------------------------------------------------
+# 5. LOGICAL STATES
+#
+# |0_L> = |000>
+# |1_L> = |111>
+# ------------------------------------------------------------
+
+logical_zero = np.zeros(8, dtype=complex)
+logical_zero[0] = 1.0
+
+logical_one = np.zeros(8, dtype=complex)
+logical_one[7] = 1.0
+
+
+# ------------------------------------------------------------
+# 6. CREATE AN ARBITRARY LOGICAL QUBIT
+#
+# |psi_L> = alpha|000> + beta|111>
+# ------------------------------------------------------------
+
+alpha = 1 / np.sqrt(3)
+
+beta = np.sqrt(2 / 3)
+
+logical_state = (
+    alpha * logical_zero
+    + beta * logical_one
+)
+
+
+# ------------------------------------------------------------
+# 7. STABILIZERS
+#
+# S1 = Z0 Z1
+# S2 = Z1 Z2
+#
+# These allow us to determine which qubit
+# experienced a bit-flip.
+# ------------------------------------------------------------
+
+S1 = pauli_operator("ZZI")
+
+S2 = pauli_operator("IZZ")
+
+
+# ------------------------------------------------------------
+# 8. ERROR OPERATORS
+# ------------------------------------------------------------
+
+X0 = pauli_operator("XII")
+X1 = pauli_operator("IXI")
+X2 = pauli_operator("IIX")
+
+Y0 = pauli_operator("YII")
+Z0 = pauli_operator("ZII")
+
+
+# ------------------------------------------------------------
+# 9. APPLY ERROR
+# ------------------------------------------------------------
+
+def apply_error(state, error_operator):
+
+    return error_operator @ state
+
+
+# ------------------------------------------------------------
+# 10. MEASURE STABILIZER
+#
+# For an error state:
+#
+# +1 -> syndrome bit 0
+# -1 -> syndrome bit 1
+# ------------------------------------------------------------
+
+def stabilizer_value(state, stabilizer):
+
+    expectation = np.vdot(
+        state,
+        stabilizer @ state
+    )
+
+    # Numerical rounding
+    expectation = np.real_if_close(expectation)
+
+    if np.real(expectation) > 0:
+        return +1
+
+    return -1
+
+
+# ------------------------------------------------------------
+# 11. EXTRACT SYNDROME
+# ------------------------------------------------------------
+
+def get_syndrome(state):
+
+    s1 = stabilizer_value(state, S1)
+
+    s2 = stabilizer_value(state, S2)
+
+    return s1, s2
+
+
+# ------------------------------------------------------------
+# 12. CONVERT SYNDROME TO BINARY
+#
+# +1 -> 0
+# -1 -> 1
+# ------------------------------------------------------------
+
+def syndrome_bits(syndrome):
+
+    s1, s2 = syndrome
+
+    bit1 = 0 if s1 == +1 else 1
+    bit2 = 0 if s2 == +1 else 1
+
+    return f"{bit1}{bit2}"
+
+
+# ------------------------------------------------------------
+# 13. DECODER
+#
+# Syndrome table:
+#
+# 00 -> no error
+# 10 -> X0
+# 11 -> X1
+# 01 -> X2
+# ------------------------------------------------------------
+
+def decode_syndrome(syndrome):
+
+    bits = syndrome_bits(syndrome)
+
+    if bits == "00":
+
+        return "No error", I
+
+    elif bits == "10":
+
+        return "X0", X0
+
+    elif bits == "11":
+
+        return "X1", X1
+
+    elif bits == "01":
+
+        return "X2", X2
+
+    else:
+
+        return "Unknown", I
+
+
+# ------------------------------------------------------------
+# 14. CORRECT ERROR
+# ------------------------------------------------------------
+
+def correct_error(state):
+
+    syndrome = get_syndrome(state)
+
+    error_name, correction = decode_syndrome(syndrome)
+
+    corrected_state = correction @ state
+
+    return corrected_state, syndrome, error_name
+
+
+# ------------------------------------------------------------
+# 15. FIDELITY
+# ------------------------------------------------------------
+
+def fidelity(state1, state2):
+
+    overlap = np.vdot(state1, state2)
+
+    return abs(overlap) ** 2
+
+
+# ============================================================
+# PART 1
+# DISPLAY LOGICAL STATE
+# ============================================================
+
+print("=" * 65)
+print("DAY 59: SYNDROME-BASED QUANTUM ERROR CORRECTION")
+print("=" * 65)
+
+print("\nLogical qubit:")
+
+print(
+    f"|psi_L> = "
+    f"{alpha:.4f}|000> + "
+    f"{beta:.4f}|111>"
+)
+
+
+# ============================================================
+# PART 2
+# SYNDROME TABLE
+# ============================================================
+
+print("\n" + "=" * 65)
+print("SYNDROME TABLE")
+print("=" * 65)
+
+print("\nError       S1       S2       Syndrome")
+print("-" * 45)
+
+test_errors = {
+    "No error": I,
+    "X0": X0,
+    "X1": X1,
+    "X2": X2
+}
+
+for name, error in test_errors.items():
+
+    corrupted = apply_error(
+        logical_state,
+        error
+    )
+
+    syndrome = get_syndrome(corrupted)
+
+    bits = syndrome_bits(syndrome)
+
+    print(
+        f"{name:<10} "
+        f"{syndrome[0]:>3}      "
+        f"{syndrome[1]:>3}       "
+        f"{bits}"
+    )
+
+
+# ============================================================
+# PART 3
+# TEST SINGLE BIT-FLIP ERRORS
+# ============================================================
+
+print("\n" + "=" * 65)
+print("SINGLE BIT-FLIP ERROR CORRECTION")
+print("=" * 65)
+
+
+single_bit_flip_errors = {
+    "No error": I,
+    "X0": X0,
+    "X1": X1,
+    "X2": X2
+}
+
+
+for error_name, error_operator in single_bit_flip_errors.items():
+
+    # ----------------------------------------
+    # Apply error
+    # ----------------------------------------
+
+    corrupted_state = apply_error(
+        logical_state,
+        error_operator
+    )
+
+    # ----------------------------------------
+    # Fidelity BEFORE correction
+    # ----------------------------------------
+
+    before = fidelity(
+        logical_state,
+        corrupted_state
+    )
+
+    # ----------------------------------------
+    # Extract syndrome
+    # ----------------------------------------
+
+    syndrome = get_syndrome(
+        corrupted_state
+    )
+
+    bits = syndrome_bits(
+        syndrome
+    )
+
+    # ----------------------------------------
+    # Decode and correct
+    # ----------------------------------------
+
+    corrected_state, _, correction = correct_error(
+        corrupted_state
+    )
+
+    # ----------------------------------------
+    # Fidelity AFTER correction
+    # ----------------------------------------
+
+    after = fidelity(
+        logical_state,
+        corrected_state
+    )
+
+    print("\n----------------------------------------")
+
+    print("Actual error :", error_name)
+
+    print(
+        "Syndrome     :",
+        bits
+    )
+
+    print(
+        "Correction   :",
+        correction
+    )
+
+    print(
+        f"Fidelity before correction : {before:.6f}"
+    )
+
+    print(
+        f"Fidelity after correction  : {after:.6f}"
+    )
+
+
+# ============================================================
+# PART 4
+# VERIFY AUTOMATIC DECODER
+# ============================================================
+
+print("\n" + "=" * 65)
+print("AUTOMATIC DECODER TEST")
+print("=" * 65)
+
+
+all_correct = True
+
+
+for error_name, error_operator in single_bit_flip_errors.items():
+
+    corrupted = apply_error(
+        logical_state,
+        error_operator
+    )
+
+    corrected, syndrome, correction_name = correct_error(
+        corrupted
+    )
+
+    final_fidelity = fidelity(
+        logical_state,
+        corrected
+    )
+
+    success = np.isclose(
+        final_fidelity,
+        1.0
+    )
+
+    if not success:
+        all_correct = False
+
+    print(
+        f"{error_name:<10} "
+        f"Syndrome={syndrome_bits(syndrome)} "
+        f"Correction={correction_name:<15} "
+        f"Fidelity={final_fidelity:.6f} "
+        f"Success={success}"
+    )
+
+
+print("\nAll single bit-flip errors corrected:",
+      all_correct)
+
+
+# ============================================================
+# PART 5
+# WHY PHASE FLIPS ARE DIFFERENT
+# ============================================================
+
+print("\n" + "=" * 65)
+print("PHASE-FLIP TEST")
+print("=" * 65)
+
+
+phase_error_state = apply_error(
+    logical_state,
+    Z0
+)
+
+
+phase_syndrome = get_syndrome(
+    phase_error_state
+)
+
+phase_bits = syndrome_bits(
+    phase_syndrome
+)
+
+print("\nApplied error: Z0")
+
+print(
+    "Syndrome:",
+    phase_bits
+)
+
+print("""
+The 3-qubit repetition code does not
+detect this phase error using these
+Z-type stabilizers.
+
+Therefore this code is NOT a full
+quantum error-correcting code.
+""")
+
+
+# ============================================================
+# PART 6
+# Y ERROR
+# ============================================================
+
+print("\n" + "=" * 65)
+print("Y ERROR TEST")
+print("=" * 65)
+
+
+y_error_state = apply_error(
+    logical_state,
+    Y0
+)
+
+
+y_syndrome = get_syndrome(
+    y_error_state
+)
+
+y_bits = syndrome_bits(
+    y_syndrome
+)
+
+y_corrected, _, y_correction = correct_error(
+    y_error_state
+)
+
+y_fidelity = fidelity(
+    logical_state,
+    y_corrected
+)
+
+
+print("\nApplied error: Y0")
+
+print(
+    "Syndrome:",
+    y_bits
+)
+
+print(
+    "Decoder correction:",
+    y_correction
+)
+
+print(
+    f"Final fidelity: {y_fidelity:.6f}"
+)
+
+print("""
+Y contains both X and Z components:
+
+Y = iXZ
+
+The bit-flip code only protects
+against the X component.
+""")
+
+
+# ============================================================
+# PART 7
+# TWO BIT-FLIP ERRORS
+# ============================================================
+
+print("\n" + "=" * 65)
+print("TWO-ERROR TEST")
+print("=" * 65)
+
+
+# X0 X1
+two_error_operator = X0 @ X1
+
+two_error_state = apply_error(
+    logical_state,
+    two_error_operator
+)
+
+
+two_syndrome = get_syndrome(
+    two_error_state
+)
+
+two_bits = syndrome_bits(
+    two_syndrome
+)
+
+two_corrected, _, two_correction = correct_error(
+    two_error_state
+)
+
+two_fidelity = fidelity(
+    logical_state,
+    two_corrected
+)
+
+
+print("\nApplied errors: X0 X1")
+
+print(
+    "Syndrome:",
+    two_bits
+)
+
+print(
+    "Decoder correction:",
+    two_correction
+)
+
+print(
+    f"Final fidelity: {two_fidelity:.6f}"
+)
+
+print("""
+The code can correct only ONE bit-flip.
+
+Two simultaneous errors are outside
+its correction capability.
+""")
+
+
+# ============================================================
+# PART 8
+# DISTANCE CONNECTION
+# ============================================================
+
+print("\n" + "=" * 65)
+print("CODE DISTANCE CONNECTION")
+print("=" * 65)
+
+
+d_bit_flip = 3
+
+correctable = (d_bit_flip - 1) // 2
+
+detectable = d_bit_flip - 1
+
+
+print(
+    f"""
+Bit-flip distance:
+
+d_X = {d_bit_flip}
+
+Correctable errors:
+
+t = floor((d_X - 1) / 2)
+  = {correctable}
+
+Detectable errors:
+
+d_X - 1
+= {detectable}
+
+Therefore:
+
+The 3-qubit repetition code can
+correct 1 bit-flip error and detect
+up to 2 bit-flip errors.
+"""
+)
+
+
+# ============================================================
+# PART 9
+# COMPLETE QEC PIPELINE
+# ============================================================
+
+print("\n" + "=" * 65)
+print("COMPLETE QEC PIPELINE")
+print("=" * 65)
+
+print("""
+Logical Qubit
+     |
+     v
+   ENCODE
+     |
+     v
+|psi_L> = alpha|000> + beta|111>
+     |
+     v
+    ERROR
+     |
+     v
+  SYNDROME
+  MEASUREMENT
+     |
+     v
+   DECODER
+     |
+     v
+ CORRECTION
+     |
+     v
+ RECOVERED
+ LOGICAL STATE
+""")
+
+
+# ============================================================
+# FINAL SUMMARY
+# ============================================================
+
+print("=" * 65)
+print("DAY 59 COMPLETE")
+print("=" * 65)
+
+print("""
+Key concepts learned:
+
+1. Encode logical information using redundancy.
+
+2. Do NOT measure the logical information directly.
+
+3. Measure stabilizers instead.
+
+4. Stabilizer outcomes form the error syndrome.
+
+5. The decoder maps syndrome -> correction.
+
+6. For the 3-qubit repetition code:
+
+       00 -> no error
+       10 -> X0
+       11 -> X1
+       01 -> X2
+
+7. The code corrects one bit-flip error.
+
+8. It does NOT protect against arbitrary Pauli errors.
+
+9. A proper quantum code must handle:
+
+       X
+       Y
+       Z
+
+10. The Shor 9-qubit code provides full
+    single-qubit Pauli error correction.
+
+11. Distance determines error-correction capability:
+
+       t = floor((d - 1) / 2)
+""")
+
+print("=" * 65)
