@@ -1,0 +1,574 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, SparsePauliOp
+
+from sklearn.datasets import make_moons
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
+
+
+# ============================================================
+# 1. DATASET
+# ============================================================
+
+X, y = make_moons(
+    n_samples=120,
+    noise=0.12,
+    random_state=42
+)
+
+# Map features to quantum rotation angles
+scaler = MinMaxScaler(
+    feature_range=(0, np.pi)
+)
+
+X = scaler.fit_transform(X)
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.25,
+    random_state=42,
+    stratify=y
+)
+
+
+# ============================================================
+# 2. OBSERVABLE
+# ============================================================
+
+observable = SparsePauliOp.from_list([
+    ("ZI", 1.0)
+])
+
+
+# ============================================================
+# 3. NORMAL QNN
+# ============================================================
+
+def normal_qnn(x, theta, num_layers=2):
+
+    qc = QuantumCircuit(2)
+
+    # --------------------------------------------------------
+    # Encode data ONCE
+    # --------------------------------------------------------
+
+    qc.ry(x[0], 0)
+    qc.ry(x[1], 1)
+
+    parameter_index = 0
+
+    # --------------------------------------------------------
+    # Trainable layers
+    # --------------------------------------------------------
+
+    for _ in range(num_layers):
+
+        qc.ry(
+            theta[parameter_index],
+            0
+        )
+
+        parameter_index += 1
+
+        qc.ry(
+            theta[parameter_index],
+            1
+        )
+
+        parameter_index += 1
+
+        qc.cx(0, 1)
+
+    return qc
+
+
+# ============================================================
+# 4. DATA RE-UPLOADING QNN
+# ============================================================
+
+def reuploading_qnn(x, theta, num_layers=2):
+
+    qc = QuantumCircuit(2)
+
+    parameter_index = 0
+
+    # --------------------------------------------------------
+    # Re-upload data at every layer
+    # --------------------------------------------------------
+
+    for _ in range(num_layers):
+
+        # -------------------------------
+        # Data encoding
+        # -------------------------------
+
+        qc.ry(x[0], 0)
+        qc.ry(x[1], 1)
+
+        # -------------------------------
+        # Trainable layer
+        # -------------------------------
+
+        qc.ry(
+            theta[parameter_index],
+            0
+        )
+
+        parameter_index += 1
+
+        qc.ry(
+            theta[parameter_index],
+            1
+        )
+
+        parameter_index += 1
+
+        # -------------------------------
+        # Entanglement
+        # -------------------------------
+
+        qc.cx(0, 1)
+
+    return qc
+
+
+# ============================================================
+# 5. FORWARD PASS
+# ============================================================
+
+def predict_single(
+    x,
+    theta,
+    model_type,
+    num_layers
+):
+
+    if model_type == "normal":
+
+        qc = normal_qnn(
+            x,
+            theta,
+            num_layers
+        )
+
+    elif model_type == "reupload":
+
+        qc = reuploading_qnn(
+            x,
+            theta,
+            num_layers
+        )
+
+    else:
+
+        raise ValueError(
+            "Unknown model type"
+        )
+
+    state = Statevector.from_instruction(qc)
+
+    expectation = state.expectation_value(
+        observable
+    )
+
+    expectation = float(
+        np.real(expectation)
+    )
+
+    probability = (
+        expectation + 1
+    ) / 2
+
+    return np.clip(
+        probability,
+        1e-8,
+        1 - 1e-8
+    )
+
+
+# ============================================================
+# 6. BATCH PREDICTION
+# ============================================================
+
+def predict(
+    X,
+    theta,
+    model_type,
+    num_layers
+):
+
+    return np.array([
+        predict_single(
+            x,
+            theta,
+            model_type,
+            num_layers
+        )
+        for x in X
+    ])
+
+
+# ============================================================
+# 7. LOSS
+# ============================================================
+
+def binary_cross_entropy(
+    y_true,
+    y_pred
+):
+
+    y_pred = np.clip(
+        y_pred,
+        1e-8,
+        1 - 1e-8
+    )
+
+    return -np.mean(
+        y_true * np.log(y_pred)
+        +
+        (1 - y_true)
+        * np.log(1 - y_pred)
+    )
+
+
+# ============================================================
+# 8. PARAMETER-SHIFT GRADIENT
+# ============================================================
+
+def parameter_shift_gradient(
+    X,
+    y,
+    theta,
+    model_type,
+    num_layers,
+    parameter_index
+):
+
+    shift = np.pi / 2
+
+    theta_plus = theta.copy()
+    theta_minus = theta.copy()
+
+    theta_plus[
+        parameter_index
+    ] += shift
+
+    theta_minus[
+        parameter_index
+    ] -= shift
+
+    predictions_plus = predict(
+        X,
+        theta_plus,
+        model_type,
+        num_layers
+    )
+
+    predictions_minus = predict(
+        X,
+        theta_minus,
+        model_type,
+        num_layers
+    )
+
+    loss_plus = binary_cross_entropy(
+        y,
+        predictions_plus
+    )
+
+    loss_minus = binary_cross_entropy(
+        y,
+        predictions_minus
+    )
+
+    return (
+        loss_plus - loss_minus
+    ) / 2
+
+
+# ============================================================
+# 9. ALL GRADIENTS
+# ============================================================
+
+def compute_gradients(
+    X,
+    y,
+    theta,
+    model_type,
+    num_layers
+):
+
+    gradients = np.zeros_like(theta)
+
+    for i in range(len(theta)):
+
+        gradients[i] = parameter_shift_gradient(
+            X,
+            y,
+            theta,
+            model_type,
+            num_layers,
+            i
+        )
+
+    return gradients
+
+
+# ============================================================
+# 10. ACCURACY
+# ============================================================
+
+def accuracy(
+    X,
+    y,
+    theta,
+    model_type,
+    num_layers
+):
+
+    probabilities = predict(
+        X,
+        theta,
+        model_type,
+        num_layers
+    )
+
+    predictions = (
+        probabilities >= 0.5
+    ).astype(int)
+
+    return np.mean(
+        predictions == y
+    )
+
+
+# ============================================================
+# 11. TRAIN MODEL
+# ============================================================
+
+def train_model(
+    model_type,
+    num_layers=2,
+    epochs=25,
+    learning_rate=0.3
+):
+
+    # Two parameters per trainable layer
+    num_parameters = (
+        2 * num_layers
+    )
+
+    rng = np.random.default_rng(42)
+
+    theta = rng.uniform(
+        -0.2,
+        0.2,
+        num_parameters
+    )
+
+    loss_history = []
+
+    print("\n" + "=" * 65)
+    print(
+        f"TRAINING MODEL: {model_type.upper()}"
+    )
+    print("=" * 65)
+
+    for epoch in range(epochs):
+
+        predictions = predict(
+            X_train,
+            theta,
+            model_type,
+            num_layers
+        )
+
+        loss = binary_cross_entropy(
+            y_train,
+            predictions
+        )
+
+        gradients = compute_gradients(
+            X_train,
+            y_train,
+            theta,
+            model_type,
+            num_layers
+        )
+
+        theta -= (
+            learning_rate
+            * gradients
+        )
+
+        loss_history.append(loss)
+
+        train_acc = accuracy(
+            X_train,
+            y_train,
+            theta,
+            model_type,
+            num_layers
+        )
+
+        test_acc = accuracy(
+            X_test,
+            y_test,
+            theta,
+            model_type,
+            num_layers
+        )
+
+        print(
+            f"Epoch {epoch + 1:02d} | "
+            f"Loss: {loss:.4f} | "
+            f"Train Acc: {train_acc:.3f} | "
+            f"Test Acc: {test_acc:.3f}"
+        )
+
+    return theta, loss_history
+
+
+# ============================================================
+# 12. TRAIN NORMAL QNN
+# ============================================================
+
+normal_theta, normal_loss = train_model(
+    model_type="normal",
+    num_layers=2
+)
+
+
+# ============================================================
+# 13. TRAIN RE-UPLOADING QNN
+# ============================================================
+
+reupload_theta, reupload_loss = train_model(
+    model_type="reupload",
+    num_layers=2
+)
+
+
+# ============================================================
+# 14. FINAL EVALUATION
+# ============================================================
+
+normal_test_accuracy = accuracy(
+    X_test,
+    y_test,
+    normal_theta,
+    "normal",
+    2
+)
+
+reupload_test_accuracy = accuracy(
+    X_test,
+    y_test,
+    reupload_theta,
+    "reupload",
+    2
+)
+
+print("\n" + "=" * 65)
+print("FINAL COMPARISON")
+print("=" * 65)
+
+print(
+    f"Normal QNN Test Accuracy: "
+    f"{normal_test_accuracy * 100:.2f}%"
+)
+
+print(
+    f"Re-uploading QNN Test Accuracy: "
+    f"{reupload_test_accuracy * 100:.2f}%"
+)
+
+
+# ============================================================
+# 15. PARAMETER COUNT
+# ============================================================
+
+print("\nParameter count:")
+
+print(
+    "Normal QNN: "
+    f"{len(normal_theta)}"
+)
+
+print(
+    "Re-uploading QNN: "
+    f"{len(reupload_theta)}"
+)
+
+
+# ============================================================
+# 16. LOSS COMPARISON
+# ============================================================
+
+plt.figure(figsize=(9, 5))
+
+plt.plot(
+    normal_loss,
+    marker="o",
+    label="Normal QNN"
+)
+
+plt.plot(
+    reupload_loss,
+    marker="s",
+    label="Data Re-uploading QNN"
+)
+
+plt.xlabel("Epoch")
+
+plt.ylabel(
+    "Binary Cross Entropy"
+)
+
+plt.title(
+    "Normal QNN vs Data Re-uploading QNN"
+)
+
+plt.grid(True)
+
+plt.legend()
+
+plt.tight_layout()
+
+plt.show()
+
+
+# ============================================================
+# 17. PRINT CIRCUITS
+# ============================================================
+
+print("\n" + "=" * 65)
+print("NORMAL QNN CIRCUIT")
+print("=" * 65)
+
+example_theta = normal_theta
+
+print(
+    normal_qnn(
+        X_train[0],
+        example_theta,
+        2
+    )
+)
+
+
+print("\n" + "=" * 65)
+print("DATA RE-UPLOADING QNN CIRCUIT")
+print("=" * 65)
+
+print(
+    reuploading_qnn(
+        X_train[0],
+        reupload_theta,
+        2
+    )
+)
